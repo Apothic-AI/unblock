@@ -2,7 +2,8 @@ import { createHttpHandler } from './mcp.js'
 import { processStarts, sameProcess, verifiedOrigin, hasVerifiedPid } from './origin-process.js'
 import http from 'node:http'
 import { execFile } from 'node:child_process'
-import { guardedAnswerNotice, recheckNotice, originFinishedNotice, delivered } from './pane-notice.js'
+import { guardedAnswerNotice, recheckNotice, originFinishedNotice, staleLaneNotice, delivered } from './pane-notice.js'
+import { laneForAsk, laneClosed } from './lane-state.js'
 import { createScopeRoutes } from './scope.js'
 import { ASSET_ID } from './scope-assets.js'
 import { randomBytes, timingSafeEqual } from 'node:crypto'
@@ -572,6 +573,12 @@ function scrubFieldBounce(raw) {
   }
 
   async function deadReference(ask) {
+    const configuredDays = Number(process.env.UNBLOCK_STALE_LANE_DAYS)
+    const staleDays = Number.isFinite(configuredDays) && configuredDays > 0 ? configuredDays : 7
+    if (Date.now() - ask.created_at > staleDays * 86400000) {
+      const lane = laneForAsk(ask)
+      if (lane && laneClosed(lane)) return 'stale_lane_closed'
+    }
     if (ask.purpose === 'permission' && ask.permission?.path && isAbsolute(ask.permission.path) && !existsSync(ask.permission.path)) return 'path_gone'
     for (const ref of ask.closes_on || []) {
       if (ref.startsWith('scope:')) {
@@ -1329,8 +1336,13 @@ async function answerAsk(ticket, values, reply, fieldContext, fieldBounce, revis
           if (ask?.status !== 'open') return
           const reason = diesWithOrigin(ask) && starts !== null && hasVerifiedPid(ask.origin) && !sameProcess(ask.origin.pid, ask.origin.pid_start, starts) ? 'origin_finished' : await deadReference(ask)
           if (reason) {
-            const closed = store.autoClose(ask.ticket, reason)
-            if (closed) { changed = true; emitAsk(closed, closed.status) }
+            const lane = reason === 'stale_lane_closed' ? laneForAsk(ask) : null
+            const note = lane ? `closed as stale: older than 7 days and lane ${lane} is closed; re-ask through unblock if it still matters` : undefined
+            const closed = store.autoClose(ask.ticket, reason, note)
+            if (closed) {
+              changed = true; emitAsk(closed, closed.status)
+              if (lane) await staleLaneNotice(closed, lane)
+            }
           } else if (!ask.set_aside_at && ask.rechecked_at != null && Date.now() - ask.rechecked_at >= replyMs && (ask.kept_at == null || (ask.kept_at < ask.rechecked_at && Date.now() - ask.kept_at >= recheckAfterMs))) {
             const aside = store.setAside(ask.ticket, 'no_reply')
             changed = true; emitAsk(aside, aside.status)

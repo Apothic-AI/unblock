@@ -949,11 +949,11 @@ export class Store {
     return this.get(ticket)
   }
 
-  autoClose(ticket, reason) {
+  autoClose(ticket, reason, note = `closed by itself: ${reason}`) {
     const ask = this.get(ticket)
     if (!ask || ask.status !== 'open') return null
     return this.#transact(() => {
-      this.#db.prepare("UPDATE asks SET status = 'cancelled', closed_at = ?, close_reason = ?, note = ? WHERE ticket = ? AND status = 'open'").run(nowMs(), reason, `closed by itself: ${reason}`, ticket)
+      this.#db.prepare("UPDATE asks SET status = 'cancelled', closed_at = ?, close_reason = ?, note = ? WHERE ticket = ? AND status = 'open'").run(nowMs(), reason, note, ticket)
       this.#queueDropped(secretRecords(ask))
       return this.get(ticket)
     })

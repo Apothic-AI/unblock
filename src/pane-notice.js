@@ -86,6 +86,13 @@ export async function originFinishedNotice(ask) {
   return postNotice(ask.origin.pane_id, 'unblock-origin-finished', text)
 }
 
+/** Closed lanes no longer need a decision; a failed notice never reopens it. */
+export async function staleLaneNotice(ask, lane) {
+  if (!ask.origin?.pane_id) return 'failed'
+  const note = ask.note || `closed as stale: older than 7 days and lane ${lane} is closed; re-ask through unblock if it still matters`
+  return postNotice(ask.origin.pane_id, 'unblock-stale-lane', `${ask.ticket} "${ask.title}" ${note}`, 'info')
+}
+
 /** A post that outlived its deadline was detached, not killed: lane-post has usually posted already. */
 export const delivered = (outcome) => outcome === 'sent' || outcome === 'unconfirmed'
 
@@ -95,11 +102,11 @@ export const delivered = (outcome) => outcome === 'sent' || outcome === 'unconfi
  * reported 'unconfirmed', never killed and never resent ('failed' means a spawn error or a
  * non-zero exit). UNBLOCK_LANE_POST_TIMEOUT_MS sets the deadline (default 30 s).
  */
-function postNotice(pane, topic, text) {
+function postNotice(pane, topic, text, kind = 'task') {
   const timeoutMs = Number(process.env.UNBLOCK_LANE_POST_TIMEOUT_MS) > 0 ? Number(process.env.UNBLOCK_LANE_POST_TIMEOUT_MS) : 30000
   return new Promise((resolve) => {
     const child = spawn(process.env.UNBLOCK_LANE_POST_BIN || 'lane-post',
-      ['post', '--to', pane, '--from', 'unblock', '--kind', 'task',
+      ['post', '--to', pane, '--from', 'unblock', '--kind', kind,
         '--topic', topic, '--wake', 'auto', text],
       { stdio: 'ignore' })
     const timer = setTimeout(() => {
