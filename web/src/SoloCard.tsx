@@ -735,6 +735,12 @@ export function SoloCard({ ask, onFinished, onReload, queueSend, recovery, voice
     <article className={`ask-article kind-${kind}`}>
       <div className="card-heading">
         <span className="kind-label"><Icon name={kind} size={16} /> {kind}</span>
+        {!answered && (
+          <span className={`status-pill${ask.kind === 'park' ? ' paused' : ''}`}>
+            <Icon name={ask.kind === 'park' ? 'park' : 'waiting'} size={13} />
+            {ask.kind === 'park' ? 'Agent paused' : detected ? 'Stalled' : 'Waiting on you'}
+          </span>
+        )}
       </div>
       <h1><PlainText text={ask.title} /></h1>
       <section className="why-section">
