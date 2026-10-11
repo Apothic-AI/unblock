@@ -31,7 +31,7 @@ test('old asks of closed lanes leave the queue once, including set-aside and out
   for (const [name, state, metadata] of [
     ['old-lane', 'Work completed.\nThe lane is closed.\n', {}],
     ['live-lane', 'Still working.\n', {}],
-    ['pane-lane', '', { owner_pane: 'w5H:p15W', closed_at: '2026-10-01T00:00:00Z' }],
+    ['pane-lane', '', { herdr: { pane_id: 'w5H:p15W' }, closed_at: '2026-10-01T00:00:00Z' }],
     ['handoff-lane', 'handed to factory\n', {}],
     ['historic-lane', 'The lane is closed.\n1\n2\n3\n4\n5\n', {}],
   ]) {

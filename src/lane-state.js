@@ -20,7 +20,7 @@ export function laneForAsk(ask, root = lanesRoot()) {
     for (const lane of readdirSync(root)) {
       if (!laneExists(lane, root)) continue
       const info = metadata(lane, root)
-      if ([info.owner_pane, info.pane].some(value => typeof value === 'string' && value.toLowerCase() === pane.toLowerCase())) return lane
+      if ([info.owner_pane, info.pane, info.herdr?.pane_id].some(value => typeof value === 'string' && value.toLowerCase() === pane.toLowerCase())) return lane
     }
   } catch {}
   return null
