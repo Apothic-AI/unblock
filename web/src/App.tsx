@@ -56,7 +56,8 @@ function AskList({ asks, products, hiddenProducts, toggleProduct, showAll, choos
   if (!asks.length) return (
     <main className="list-page empty-list">
       {controls}
-      <p>{products.length ? 'Nothing waiting in the products you picked' : 'Nothing waiting'}</p>
+      <span className="brand-mark rest" aria-hidden="true" />
+      <p>{products.length ? 'Nothing waiting in the products you picked' : 'All clear — nothing needs you'}</p>
       <span className="empty-actions">
         {!!products.length && <button className="text-button" type="button" onClick={showAll}>Show all products</button>}
         <button className="text-button" type="button" onClick={showAnswered}>Show answered</button>
@@ -296,6 +297,7 @@ export default function App() {
   const products = useMemo(() => projectCounts(openAsks), [openAsks])
   const asks = useMemo(() => hideProducts(openAsks, hiddenProducts), [openAsks, hiddenProducts])
   const hiddenCount = openAsks.length - asks.length
+  const gatingCount = asks.filter((ask) => ask.gating).length
   const selected = data?.asks.find((ask) => ask.ticket === selectedTicket)
   const currentIndex = asks.findIndex((ask) => ask.ticket === selectedTicket)
   const choose = useCallback((ticket: string) => {
@@ -396,8 +398,11 @@ export default function App() {
     <>
       <header className="topbar">
         <div className="top-inner">
-          <span className="wordmark">unblock</span>
-          <span className="top-count">{asks.length} waiting{hiddenCount > 0 && ` · ${hiddenCount} hidden`}</span>
+          <span className="brand"><span className="brand-mark" aria-hidden="true" /><span className="wordmark">unblock</span></span>
+          <span className={`top-count${asks.length ? ' has-waiting' : ''}${gatingCount ? ' has-gating' : ''}`}>
+            <span className="dot" aria-hidden="true" />
+            {asks.length} waiting{hiddenCount > 0 && ` · ${hiddenCount} hidden`}
+          </span>
           {VIEWER && <span className="viewer" title={VIEWER.login}>{VIEWER.name || VIEWER.login}</span>}
           {VIEWER && !BASE && !finished && <TalkButton active={voiceState?.name === 'connecting' || voiceState?.name === 'listening' || voiceState?.name === 'speaking'} onClick={() => startCall()} />}
         </div>
@@ -422,9 +427,11 @@ export default function App() {
         onEnd={() => { starting.current++; call.current?.stop(); call.current = null; setVoiceFill(null); setVoiceDetails(null); setVoiceState({ name: 'ended' }) }}
         onRetry={() => startCall()} />}
       {finished ? (
-        <div className="empty"><h2>This link is done.</h2><p>The answer reached the agent.</p></div>
+        <div className="empty"><span className="brand-mark rest" aria-hidden="true" />
+          <h2>This link is done.</h2><p>The answer reached the agent.</p></div>
       ) : !data ? (
         <div className="empty">
+          <span className="brand-mark rest" aria-hidden="true" />
           <h2>{error ? "Can't reach the queue. Retrying…" : 'Loading the queue…'}</h2>
           <p>{error}</p>
         </div>
@@ -445,6 +452,11 @@ export default function App() {
                 )}
               </span>
             </nav>
+            {asks.length > 1 && currentIndex >= 0 && (
+              <div className="ask-progress" aria-hidden="true">
+                <i style={{ width: `${((currentIndex + 1) / asks.length) * 100}%` }} />
+              </div>
+            )}
             <SoloCard
               key={selected.ticket} ask={selected}
               onFinished={() => finish(selected.ticket)} onReload={load}
