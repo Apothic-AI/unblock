@@ -164,13 +164,29 @@ export function promptHidden(question) {
       return
     }
     const rl = readline.createInterface({ input: process.stdin, output: process.stdout, terminal: true })
-    let writes = 0
-    rl._writeToOutput = (text) => {
-      // The first write is the prompt itself; every later write would echo a
-      // typed character of the secret.
-      if (writes++ === 0) process.stdout.write(text)
+    // The question is written once, by hand. From then on everything readline
+    // would draw is the secret: echoed keys and the refreshed line go through
+    // _writeToOutput, but _refreshLine also clears the line directly on the
+    // output (cursor-to-column-1 + erase-down) — that would wipe the prompt,
+    // so it is stubbed out too. Input handling never touches these.
+    rl._writeToOutput = () => {}
+    rl._refreshLine = () => {}
+    process.stdout.write(question)
+    let settled = false
+    const cancel = () => {
+      // Ctrl-D or Ctrl-C ends the interface without an answer; without this
+      // the promise never settles and the CLI dies on an unsettled await.
+      if (settled) return
+      settled = true
+      process.stdout.write('\n')
+      rl.close()
+      reject(new Error('cancelled — no passphrase entered'))
     }
+    rl.on('close', cancel)
+    rl.on('SIGINT', cancel)
     rl.question('', (answer) => {
+      if (settled) return
+      settled = true
       process.stdout.write('\n')
       rl.close()
       resolve(answer)
