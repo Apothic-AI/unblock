@@ -213,7 +213,7 @@ const TOOLS = [
   {
     name: 'unblock_file',
     description: 'Only for what only the human can do: their credential or sign-in, a click in their own account, spend, a message to a real person, or a product call. Clicks in a signed-in site are consent asks; signing in or out is never consent. Try the CLI, API, computer use and docs first and list those attempts in `tried`.',
-    inputSchema: askSchema,
+    inputSchema: { ...askSchema, properties: { ...askProperties, emergency: { type: 'string', description: "Only when production is down or broken or there is a security incident: say what. Without it, an ask outside today's focus is held until Alex makes that work focus." } } },
   },
   {
     name: 'unblock_park',
@@ -380,9 +380,10 @@ function draftText(ask) {
 
 async function createAsk(kind, args, identity) {
   const project = identity.UNBLOCK_PROJECT || undefined
+  const { emergency, ...ask } = args
   return daemonFetch('/asks', {
     method: 'POST',
-    body: JSON.stringify({ ask: { project, ...args, kind }, origin: origin(identity) }),
+    body: JSON.stringify({ ask: { project, ...ask, kind }, origin: origin(identity), emergency }),
   })
 }
 
@@ -418,6 +419,7 @@ export class McpConnection {
         }
         throw error
       }
+      if (ask.held) return textResult(`Held ${ask.held}: ${ask.note}`, { held: ask.held, filed: false })
       return textResult(`Filed ${ask.ticket}. Keep working; call unblock_check later.`, { ticket: ask.ticket })
     }
 
@@ -520,6 +522,7 @@ export class McpConnection {
         }
         throw error
       }
+      if (ask.held) return textResult(`Held ${ask.held}: ${ask.note} Nothing to wait on today.`, { held: ask.held, filed: false })
       const link = await answerLink(ask.ticket)
       if (this.clientCapabilities.elicitation) {
         try {

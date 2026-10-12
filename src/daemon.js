@@ -4,6 +4,7 @@ import http from 'node:http'
 import { execFile } from 'node:child_process'
 import { guardedAnswerNotice, recheckNotice, originFinishedNotice, staleLaneNotice, delivered } from './pane-notice.js'
 import { laneForAsk, laneClosed } from './lane-state.js'
+import { emergencyReason, focusGate } from './focus-gate.js'
 import { createScopeRoutes } from './scope.js'
 import { ASSET_ID } from './scope-assets.js'
 import { randomBytes, timingSafeEqual } from 'node:crypto'
@@ -854,7 +855,15 @@ async function answerAsk(ticket, values, reply, fieldContext, fieldBounce, revis
         path.includes('-wt/') || path.includes('/factory-worktrees/') || path.includes('/.claude/worktrees/'))) {
         return sendJson(res, 403, { error: 'worktree origins cannot file asks while refuseWorktreeOrigins is enabled', code: 'WORKTREE_ORIGIN' })
       }
-      const ask = store.create(validateAsk(body.ask), await verifiedOrigin(origin))
+      const valid = validateAsk(body.ask)
+      const emergency = emergencyReason(body.emergency)
+      if (emergency && (valid.tried?.length ?? 0) < 8) valid.tried = [...(valid.tried ?? []), `Emergency: ${emergency}`.slice(0, 400)]
+      const gate = await focusGate(body, valid, origin)
+      if (gate.held) {
+        return sendJson(res, 202, { held: gate.held, filed: false, owner: gate.owner, title: valid.title,
+          note: "Held: this work is not in today's focus. It reaches Alex when he makes it focus; keep working." })
+      }
+      const ask = store.create(valid, await verifiedOrigin(origin))
       emitQueue()
       return sendJson(res, 201, ask)
     }

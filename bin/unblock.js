@@ -346,8 +346,8 @@ async function readBody(path) {
   try { return JSON.parse(text) } catch { fail('expected JSON input') }
 }
 async function file(args) {
-  const { rest, opts } = flags(args, { '--origin': true })
-  if (rest.length > 1) fail('usage: unblock file [path|-] [--origin lane]')
+  const { rest, opts } = flags(args, { '--origin': true, '--emergency': true })
+  if (rest.length > 1) fail('usage: unblock file [path|-] [--origin lane] [--emergency "<what is down>"]')
   // Same JSON the MCP tool takes. A body already shaped {ask, origin} passes through.
   const body = await readBody(rest[0])
   const detectedPid = filerPid()
@@ -367,7 +367,10 @@ async function file(args) {
   payload.origin = { ...laneIdentity(), ...payload.origin }
   if (detectedPid === undefined) delete payload.origin.pid
   if (opts['--origin']) payload.origin = { ...payload.origin, lane_name: opts['--origin'] }
+  // Outside today's focus the daemon holds the ask; a stated emergency passes (src/focus-gate.js).
+  if (opts['--emergency']) payload.emergency = opts['--emergency']
   const ask = await request('/api/asks', payload)
+  if (ask.held) return output(ask, `held ${ask.held}: ${ask.note}`)
   const link = stable(await request('/api/health'), ask.ticket)
   output({ ...safe(ask), link }, [ask.ticket, link].filter(Boolean).join('\n'))
 }
@@ -1245,7 +1248,7 @@ unblock pay <ticket> [--payment-method <id>]
 unblock keep <ticket>                            keep an ask in today’s queue
 unblock aside <ticket> <reason...>               hold an open ask out of today’s queue (keep brings it back)
 unblock close <ticket> <reason...>               withdraw an open ask with a one-line reason
-unblock file [path|-] [--origin lane]            file an ask from JSON (same shape as the MCP tool)
+unblock file [path|-] [--origin lane] [--emergency why]  file an ask from JSON; held outside today's focus (same shape as the MCP tool)
 unblock update <ticket> [path|-]                 revise an open ask from a JSON patch
 unblock link <ticket> [--share]                  the stable queue link; --share mints a 15-minute link
 unblock peek <ticket>                            what they have typed so far

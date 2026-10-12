@@ -147,6 +147,8 @@ export function applyConfig({ env = process.env, path = configPath() } = {}) {
     ['UNBLOCK_PORT', normalizePort(file.port)],
     ['UNBLOCK_SECRET_BACKEND', normalizeSecretBackend(file.secret_backend)],
     ['UNBLOCK_REPING_AFTER_MS', normalizePositiveInteger(file.reping_after_ms)],
+    // Today's-focus gate on filing (src/focus-gate.js): the held-asks command, e.g. agent-rails scripts/held_asks.py.
+    ['UNBLOCK_HELD_ASKS', typeof file.held_asks === 'string' && file.held_asks.trim() ? file.held_asks.trim() : null],
     ['UNBLOCK_REFUSE_WORKTREE_ORIGINS', normalizeBoolean(file.refuseWorktreeOrigins)],
     ['UNBLOCK_VOICE_KEY_REF', typeof file.voice_key_ref === 'string' && file.voice_key_ref.trim() ? file.voice_key_ref.trim() : null],
     ['UNBLOCK_VOICE_MODEL', typeof file.voice_model === 'string' && file.voice_model.trim() ? file.voice_model.trim() : null],
