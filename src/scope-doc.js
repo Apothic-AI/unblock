@@ -177,6 +177,24 @@ export function normalizeKpis(list) {
   return { kpis }
 }
 
+export function normalizePerson(value) {
+  if (!object(value) || !['person', 'agent'].includes(value.kind) || typeof value.id !== 'string' || !value.id.trim() || typeof value.name !== 'string' || !value.name.trim()) return undefined
+  const person = { kind: value.kind, id: value.id, name: value.name }
+  try {
+    if (typeof value.photo_url === 'string' && new URL(value.photo_url).protocol === 'https:') person.photo_url = value.photo_url
+  } catch {}
+  return person
+}
+
+export function normalizeHandling(value) {
+  if (!object(value) || !['workflow', 'teammate', 'research'].includes(value.state) || typeof value.at !== 'string') return undefined
+  const handling = { state: value.state, at: value.at }
+  if (typeof value.note === 'string') handling.note = value.note.slice(0, 120)
+  const by = normalizePerson(value.by)
+  if (by) handling.by = by
+  return handling
+}
+
 export function validateScope(scope) {
   const problems = []
   const check = (ok, message) => { if (!ok) problems.push(message) }
@@ -271,6 +289,16 @@ export function validateScope(scope) {
   const ids = new Set()
   for (const thread of Array.isArray(scope.threads) ? scope.threads : []) {
     if (!object(thread)) { problems.push('invalid comment'); continue }
+    for (const item of [thread, ...(Array.isArray(thread.messages) ? thread.messages.filter(object) : [])]) {
+      if (item.by !== undefined) {
+        const by = normalizePerson(item.by)
+        if (by) item.by = by; else delete item.by
+      }
+    }
+    if (thread.handling !== undefined) {
+      const handling = normalizeHandling(thread.handling)
+      if (handling) thread.handling = handling; else delete thread.handling
+    }
     check(typeof thread.id === 'string' && THREAD_ID.test(thread.id) && !ids.has(thread.id), 'invalid or duplicate comment id')
     ids.add(thread.id)
     check(typeof thread.anchor?.section === 'string' && SECTION_ID.test(thread.anchor.section) && !!normalizeAnchor(thread.anchor) && (thread.anchor?.rect === undefined || kindOf(scope) === 'visual'), 'invalid comment anchor')

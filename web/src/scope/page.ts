@@ -17,6 +17,7 @@ import { anchorFromRange, sectionText, rangeFromAnchor } from './dom-anchor'
 import { assetUrl, esc, markdown, renderMermaid } from './markdown'
 import { buildSignature, buildStrip, layoutBuildGraphs, setBuildEstimates } from './build.ts'
 import { answerHtml } from './answer.ts'
+import { chatMessageHtml, handlingChipHtml, alexWordsHtml } from './people.ts'
 import { commentState } from './comment-state'
 import { approvalBannerHtml } from './approval-banner.js'
 import { prepareAudio } from '../lib/voice-audio'
@@ -401,14 +402,19 @@ function patchLiveCard(card: HTMLElement, t: Thread, places: Map<string, string>
   let live = card.querySelector<HTMLElement>('.live:not(.pending)')
   if (!show) live?.remove()
   else {
-    if (!live) { live = document.createElement('div'); live.className = 'msg live'; live.setAttribute('aria-live', 'polite'); live.innerHTML = `<div class="from">${docFlags().qa ? 'Answer' : 'Lane'}</div>`; message.after(live) }
+    if (!live) {
+      const messages = [...t.messages.slice(0, t.messages.indexOf(last!) + 1), { from: 'agent' as const, text: '', at: item.updated_at, by: { kind: 'agent' as const, id: 'rails', name: item.by || 'Lane' } }]
+      const container = document.createElement('div')
+      container.innerHTML = chatMessageHtml({ ...t, messages }, messages.length - 1, '', 'live', ' aria-live="polite"')
+      live = container.firstElementChild as HTMLElement; message.after(live)
+    }
     live.dataset.status = item.status
     let text = live.querySelector<HTMLElement>('.live-text')
     if (!item.text) text?.remove()
-    else { if (!text) { text = document.createElement('div'); text.className = 'live-text answer-body'; live.append(text) }; if (text.dataset.source !== item.text) { text.innerHTML = answerHtml(item.text); text.dataset.source = item.text } }
+    else { if (!text) { text = document.createElement('div'); text.className = 'live-text answer-body'; live.querySelector('.chat-content')!.append(text) }; if (text.dataset.source !== item.text) { text.innerHTML = answerHtml(item.text); text.dataset.source = item.text } }
     let thinking = live.querySelector<HTMLElement>('.thinking')
     if (item.status !== 'thinking' && !(item.status === 'streaming' && item.doing)) thinking?.remove()
-    else { if (!thinking) { thinking = document.createElement('p'); thinking.className = 'thinking'; thinking.setAttribute('role', 'status'); live.append(thinking) }; const html = thinkingHtml(item.doing); if (thinking.innerHTML !== html) thinking.innerHTML = html }
+    else { if (!thinking) { thinking = document.createElement('p'); thinking.className = 'thinking'; thinking.setAttribute('role', 'status'); live.querySelector('.chat-content')!.append(thinking) }; const html = thinkingHtml(item.doing); if (thinking.innerHTML !== html) thinking.innerHTML = html }
   }
   let failed = card.querySelector<HTMLElement>('.live-failed')
   if (item?.status !== 'failed' || replied) failed?.remove()
@@ -474,12 +480,13 @@ const checkButton = '<button type="button" class="check" data-action="resolve" a
 const moreButton = '<button class="more" data-action="menu" aria-label="More" aria-haspopup="menu">⋯</button>'
 type AnswerMessage = Thread['messages'][number] & { answerer?: boolean; pending?: boolean; needs_owner?: boolean; handoff?: boolean }
 const answerBody = (text: string) => `<div class="answer-body">${answerHtml(text)}</div>`
-function answerMessageHtml(message: AnswerMessage, latest: boolean) {
+function answerMessageHtml(t: Thread, index: number, latest: boolean) {
+  const message = t.messages[index] as AnswerMessage
   const pending = message.pending === true, text = (message.text || '').trim()
   const partial = pending && text && !/^Answering(?:…|\.\.\.)?$/.test(text) ? message.text : ''
   const body = pending ? `${partial ? `<div class="live-text answer-body">${answerHtml(partial)}</div>` : ''}<p class="thinking" role="status">${thinkingHtml(null)}</p>` : answerBody(message.text)
   const note = message.needs_owner || message.handoff ? '<p class="answer-note">Sent to the owner</p>' : ''
-  return `<div${pending ? ' data-status="thinking" aria-live="polite"' : ''} class="msg answer${pending ? ' pending live' : ''}${latest ? ' latest' : ' only-on'}"><div class="from">Answer${pending ? '' : `<span>${time(message.at)}</span>`}</div>${body}${note}${imageStrip(message.images)}</div>`
+  return chatMessageHtml(t, index, `${body}${note}${imageStrip(message.images)}`, `answer${pending ? ' pending live' : ''}${latest ? ' latest' : ' only-on'}`, pending ? ' data-status="thinking" aria-live="polite"' : '')
 }
 // One exchange after another, in order. A card that is not focused shows the question, the follow-up that the newest
 // answer replies to (if any) and the start of that answer; focusing it shows the whole comment.
@@ -488,14 +495,14 @@ function explainerCardHtml(t: Thread) {
   const newestAt = messages.reduce((found, message, i) => i > 0 && message.from === 'agent' && message.answerer ? i : found, -1)
   const menu = threadMenu(t)
   const reply = !sending.has(t.id) ? `<div class="reply only-on"><textarea data-draft="${t.id}" rows="${modes.has(t.id) ? 2 : 1}" placeholder="Ask a follow-up">${esc(getDraft(t.id))}</textarea>${imageStrip(getImages(t.id), true, t.id)}<p class="error" role="alert">${esc(errors.get(t.id))}</p><div class="actions">${attachControl}<button class="btn primary" data-action="reply">Ask</button>${modes.has(t.id) ? '<button class="btn" data-action="cancel">Cancel</button>' : ''}</div></div>` : ''
-  const state = [t.anchor.rect ? `Slide ${slideNumber(t.anchor.section)} · ${esc(scope!.doc.sections.find(s => s.id === t.anchor.section)?.heading)}` : '', copiedLinks.has(t.id) ? 'Link copied' : '', t.anchor.general ? 'Whole doc' : t.anchor.t != null ? `<span class="moment">at ${moment(t.anchor.t)}</span>` : ''].filter(Boolean).join(' · ')
+  const state = [t.anchor.rect ? `Slide ${slideNumber(t.anchor.section)} · ${esc(scope!.doc.sections.find(s => s.id === t.anchor.section)?.heading)}` : '', copiedLinks.has(t.id) ? 'Link copied' : deliveryChip(t.id), handlingChipHtml(t), t.anchor.general ? 'Whole doc' : t.anchor.t != null ? `<span class="moment">at ${moment(t.anchor.t)}</span>` : ''].filter(Boolean).join(' · ')
   const thread = messages.slice(1).map((message, k) => {
     const i = k + 1
-    if (message.from === 'agent' && message.answerer) return answerMessageHtml(message, i === newestAt)
-    if (message.from === 'alex') return `<div data-alex-at="${esc(message.at)}" class="msg follow${i === newestAt - 1 ? '' : ' only-on'}"><div class="q">${esc(message.text)}</div>${imageStrip(message.images)}</div>`
-    return `<div class="msg only-on"><div class="from">Lane<span>${time(message.at)}</span></div><div>${esc(message.text)}</div>${imageStrip(message.images)}</div>`
+    if (message.from === 'agent' && message.answerer) return answerMessageHtml(t, i, i === newestAt)
+    if (message.from === 'alex') return chatMessageHtml(t, i, `<div class="q">${esc(message.text)}</div>${imageStrip(message.images)}`, `follow${i === newestAt - 1 ? '' : ' only-on'}`)
+    return chatMessageHtml(t, i, `<div>${esc(message.text)}</div>${imageStrip(message.images)}`, 'only-on')
   }).join('')
-  return `<div class="head"><span class="kind"><span class="who">You asked</span></span><span class="when">${time(t.created_at)}</span>${moreButton}</div>${menu}<div class="q" data-alex-at="${messages[0]?.from === 'alex' ? esc(messages[0].at) : ''}">${esc(messages[0]?.text)}</div>${imageStrip(messages[0]?.images)}${state ? `<p class="card-state">${state}</p>` : ''}${thread}${sending.has(t.id) ? (sending.get(t.id)!.failed ? '' : sendingLine(sending.get(t.id)!)) : reply}`
+  return `<div class="head"><span class="kind"><span class="who">You asked</span></span><span class="when">${time(t.created_at)}</span>${moreButton}</div>${menu}${chatMessageHtml(t, 0, `<div class="q">${esc(messages[0]?.text)}</div>${imageStrip(messages[0]?.images)}`)}${state ? `<p class="card-state">${state}</p>` : ''}${thread}${sending.has(t.id) ? (sending.get(t.id)!.failed ? '' : sendingLine(sending.get(t.id)!)) : reply}`
 }
 function threadMenu(t: Thread) {
   if (!menus.has(t.id)) return ''
@@ -521,7 +528,7 @@ function baseCardHtml(t: Thread) {
   const isOpen = t.status === 'open', label = t.status === 'parked' ? 'Parked' : !isOpen ? 'Resolved' : t.kind === 'question' ? 'Lane asks' : 'You commented'
   if (t.status === 'resolved' && modes.get(t.id) !== 'reply') {
     const lastAlex = t.messages.reduce((index, m, i) => m.from === 'alex' ? i : index, -1), answer = t.messages.slice(Math.max(1, lastAlex + 1)).filter(m => m.from === 'agent').at(-1)
-    return `<div class="head"><span class="kind"><span class="dot resolved"></span><span class="who">Resolved</span></span>${replyMarker(t) ? '<span class="new-reply" data-unread>New reply</span>' : ''}<span class="when">${time(t.created_at)}</span>${moreButton}</div>${threadMenu(t)}<div class="q" data-alex-at="${t.messages[0]?.from === 'alex' ? esc(t.messages[0].at) : ''}">${esc(t.messages[0]?.text)}</div>${imageStrip(t.messages[0]?.images)}${answer ? `<div class="msg"><div class="from">Lane<span>${time(answer.at)}</span></div><div>${esc(answer.text)}</div>${imageStrip(answer.images)}</div>` : ''}<div class="settled">${t.resolution?.how === 'approve' ? 'Approved with the scope:' : t.resolution?.by === 'agent' ? 'Lane resolved ·' : t.resolution?.how === 'take' ? 'You approved ·' : 'You resolved ·'} ${esc(t.resolution?.decision)}</div>${t.messages.slice(1).filter(message => message !== answer).map(message => imageStrip(message.images)).join('')}${imageStrip(t.resolution?.images)}${sending.has(t.id) ? (sending.get(t.id)!.failed ? '' : sendingLine(sending.get(t.id)!)) : ''}<button class="btn" data-action="reopen">Reopen</button>${copiedLinks.has(t.id) ? '<p class="card-state">Link copied</p>' : ''}${errors.has(t.id) ? `<p class="error" role="alert">${esc(errors.get(t.id))}</p>` : ''}`
+    return `<div class="head"><span class="kind"><span class="dot resolved"></span><span class="who">Resolved</span></span>${replyMarker(t) ? '<span class="new-reply" data-unread>New reply</span>' : ''}<span class="when">${time(t.created_at)}</span>${moreButton}</div>${threadMenu(t)}${chatMessageHtml(t, 0, `<div class="q">${esc(t.messages[0]?.text)}</div>${imageStrip(t.messages[0]?.images)}`)}${answer ? chatMessageHtml(t, t.messages.indexOf(answer), `<div>${esc(answer.text)}</div>${imageStrip(answer.images)}`, '', '', 0) : ''}<div class="settled">${t.resolution?.how === 'approve' ? 'Approved with the scope:' : t.resolution?.by === 'agent' ? 'Lane resolved ·' : t.resolution?.how === 'take' ? 'You approved ·' : 'You resolved ·'} ${esc(t.resolution?.decision)}</div>${alexWordsHtml(t)}${handlingChipHtml(t)}${t.messages.slice(1).filter(message => message !== answer).map(message => imageStrip(message.images)).join('')}${imageStrip(t.resolution?.images)}${sending.has(t.id) ? (sending.get(t.id)!.failed ? '' : sendingLine(sending.get(t.id)!)) : ''}<button class="btn" data-action="reopen">Reopen</button>${copiedLinks.has(t.id) ? '<p class="card-state">Link copied</p>' : ''}${errors.has(t.id) ? `<p class="error" role="alert">${esc(errors.get(t.id))}</p>` : ''}`
   }
   const mode = !sending.has(t.id) && (modes.get(t.id) || (t.kind === 'comment' && !t.recommendation ? 'reply' : null))
   const compose = mode && !(t.recommendation && mode === 'else') && { no: ["What's wrong with it? (optional)", 'Send No'], else: ['Your answer', 'Send answer'], reply: [t.kind === 'question' ? 'Ask the lane something' : 'Reply', t.kind === 'question' ? 'Send' : 'Reply'] }[mode]
@@ -535,12 +542,12 @@ function baseCardHtml(t: Thread) {
     body = `<div class="reply only-on"><textarea data-draft="${t.id}" rows="1" placeholder="Reply to the lane · ⌘Enter sends">${esc(getDraft(t.id))}</textarea>${imageStrip(getImages(t.id), true, t.id)}<p class="error" role="alert">${esc(errors.get(t.id))}</p><div class="actions">${attachControl}<button class="btn${approve ? '' : ' primary'}" data-action="reply">Reply</button>${docFlags().resolve ? '<button class="btn" data-action="resolve">Resolve</button>' : ''}${approve}${approve && t.kind !== 'question' ? '<button class="btn" data-action="no">Reject</button>' : ''}</div>${approve ? '<p class="pick-hint">Approve takes the recommendation; a note goes with it.</p>' : ''}</div>`
   }
   const newRec = !t.rejected_at && t.messages.some(m => m.kind === 'option')
-  const state = [t.anchor.rect ? `Slide ${slideNumber(t.anchor.section)} · ${esc(scope!.doc.sections.find(s => s.id === t.anchor.section)?.heading)}` : '', copiedLinks.has(t.id) ? 'Link copied' : deliveryChip(t.id), t.anchor.embed ? `<button class="btn small" data-action="jump-text">${missing.has(t.id) ? 'Embed changed' : 'Embed ' + esc(t.anchor.embed.src)} · <q>${esc(t.anchor.embed.quote)}</q></button>` : t.anchor.general ? 'General comment' : t.anchor.t != null ? `<span class="moment">at ${moment(t.anchor.t)}</span>` : ''].filter(Boolean).join(' · ')
-  return `<div class="head"><span class="kind"><span class="dot ${isOpen ? t.kind : 'resolved'}"></span><span class="who">${label}</span></span>${replyMarker(t) ? '<span class="new-reply" data-unread>New reply</span>' : ''}<span class="when">${time(t.created_at)}</span>${isOpen ? checkButton : ''}${moreButton}</div>${menu}<div class="q" data-alex-at="${t.messages[0]?.from === 'alex' ? esc(t.messages[0].at) : ''}">${esc(t.messages[0]?.text)}</div>${imageStrip(t.messages[0]?.images)}${t.anchor.crop ? `<div class="thumbs"><button type="button" class="thumb region-thumb" data-action="view-image"><img src="${assetUrl(t.anchor.crop, `${endpoint}/assets`)}" alt="Selected slide area"></button></div>` : ''}${state ? `<p class="card-state">${state}</p>` : ''}
+  const state = [t.anchor.rect ? `Slide ${slideNumber(t.anchor.section)} · ${esc(scope!.doc.sections.find(s => s.id === t.anchor.section)?.heading)}` : '', copiedLinks.has(t.id) ? 'Link copied' : deliveryChip(t.id), handlingChipHtml(t), t.anchor.embed ? `<button class="btn small" data-action="jump-text">${missing.has(t.id) ? 'Embed changed' : 'Embed ' + esc(t.anchor.embed.src)} · <q>${esc(t.anchor.embed.quote)}</q></button>` : t.anchor.general ? 'General comment' : t.anchor.t != null ? `<span class="moment">at ${moment(t.anchor.t)}</span>` : ''].filter(Boolean).join(' · ')
+  return `<div class="head"><span class="kind"><span class="dot ${isOpen ? t.kind : 'resolved'}"></span><span class="who">${label}</span></span>${replyMarker(t) ? '<span class="new-reply" data-unread>New reply</span>' : ''}<span class="when">${time(t.created_at)}</span>${isOpen ? checkButton : ''}${moreButton}</div>${menu}${chatMessageHtml(t, 0, `<div class="q">${esc(t.messages[0]?.text)}</div>${imageStrip(t.messages[0]?.images)}`)}${t.anchor.crop ? `<div class="thumbs"><button type="button" class="thumb region-thumb" data-action="view-image"><img src="${assetUrl(t.anchor.crop, `${endpoint}/assets`)}" alt="Selected slide area"></button></div>` : ''}${state ? `<p class="card-state">${state}</p>` : ''}
   ${isOpen && t.recommendation ? `<div class="rec${newRec ? ' new' : ''}"><span class="lbl">Recommended</span><span class="txt">${esc(t.recommendation)}</span></div>` : ''}
   ${isOpen && t.kind === 'question' && t.options?.length ? `<details class="other-options only-on"><summary>Other options (${t.options.length - 1})</summary>${t.options.slice(1).map((option, i) => `<div class="other-option"><span>${esc(option)}</span><button class="btn small" data-action="option" data-option="${i + 1}">Pick this</button></div>`).join('')}</details>` : ''}
   ${isOpen && t.why ? `<details class="why only-on"><summary>Why</summary><p>${esc(t.why)}</p></details>` : ''}
-  ${t.messages.length > 1 ? `<div class="msgs only-on">${t.messages.slice(1).map((m, i) => `<div${m.from === 'alex' ? ` data-alex-at="${esc(m.at)}"` : ''} class="msg"><div class="from">${m.from === 'alex' ? 'You' : 'Lane'}<span>${time(m.at)}</span></div><div>${m.kind === 'reject' ? 'No' + (m.text ? ': ' : '') : ''}${esc(m.text)}</div>${imageStrip(m.images)}</div>`).join('')}</div>` : ''}
+  ${t.messages.length > 1 ? `<div class="msgs only-on">${t.messages.slice(1).map((m, i) => chatMessageHtml(t, i + 1, `<div>${m.kind === 'reject' ? 'No' + (m.text ? ': ' : '') : ''}${esc(m.text)}</div>${imageStrip(m.images)}`)).join('')}</div>` : ''}
   ${!isOpen ? `<div class="settled">${t.status === 'parked' ? '<b>Parked.</b> Not answered; the lane leaves it for later.' : 'Resolved'}</div><button class="btn" data-action="reopen">Reopen</button>` : ''}${sending.has(t.id) ? (sending.get(t.id)!.failed ? '' : sendingLine(sending.get(t.id)!)) + (sending.get(t.id)!.failed ? body : '') : body}${!compose && errors.has(t.id) ? `<p class="error" role="alert">${esc(errors.get(t.id))}</p>` : ''}`
 }
 function cardHtml(t: Thread) {
