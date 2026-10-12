@@ -696,3 +696,80 @@ body.show-resolved mark.hl.region.resolved, mark.hl.region.resolved.unread { dis
 .thumbs .region-thumb { width: auto; height: 64px; aspect-ratio: auto; }
 .thumbs .region-thumb img { width: auto; height: 64px; object-fit: contain; }
 @media (max-width: 899px) { body.visual .layout { grid-template-columns: minmax(0, 1fr); } }
+
+/* Doc theme "shelf": a scope doc with `theme: "shelf"` (page.ts sets data-doc-theme) wears Shelf's system.
+   Source: shelf packages/theme/src/brand.ts (neutrals, danger, fonts), tokens.ts (mono accent; amber and
+   matcha text shades for question and done), packages/design/styles/base.css (radii 8/12/20/28, shadows,
+   type pairs 13/18 15/22 17/24 20/26 28/34) and assets/brand/brand-book.html. Ink/Paper, Apple greys and a
+   mono accent: the fill is the ink, the text on it is the page. data-theme and data-scheme (the embed
+   helper's attribute) both pick the mode. Every token here is a doc name, never a --rails-* host variable,
+   so host variables written inline on <html> cannot reach them. Geologica is the doc title's face only,
+   self-hosted with its licence (fonts/Geologica-OFL.txt); a doc without the theme never loads it. */
+@font-face { font-family: "Geologica"; src: url("./fonts/Geologica-VF.ttf") format("truetype"); font-weight: 100 900; font-display: swap; }
+:root[data-doc-theme="shelf"] {
+  --ground: #FFFFFF; --surface: #F2F2F7; --raised: #FFFFFF; --soft: #E5E5EA; --surface-active: #D1D1D6;
+  --ink: #131217; --muted: #6C6C70; --hairline: #E5E5EA; --control: #C7C7CC;
+  --fill-1: rgb(19 18 23 / .04); --fill-2: rgb(19 18 23 / .08); --fill-3: rgb(19 18 23 / .12);
+  --accent: #131217; --accent-hover: #2C2B31; --accent-ink: #131217; --accent-soft: rgb(19 18 23 / .12); --accent-fg: #FFFFFF; --focus: #131217;
+  --danger: #C50033; --danger-fill: #C50033; --warning: #7C5100; --success: #006731;
+  --radius-sheet: 28px; --radius-panel: 20px; --radius-message: 20px; --radius-small: 8px; --radius-card: 12px;
+  --shadow-1: 0 1px 2px rgb(19 18 23 / .10), 0 0 0 .5px rgb(19 18 23 / .06);
+  --shadow-2: 0 2px 6px rgb(19 18 23 / .08), 0 18px 48px rgb(19 18 23 / .18);
+  --font-system: -apple-system, BlinkMacSystemFont, system-ui, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-brand: "Geologica", var(--font-system);
+  --font-mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace; --mono: var(--font-mono);
+  --page: var(--ground); --card: var(--surface); --line: var(--hairline); --tx: var(--ink); --tx2: var(--muted); --tx3: var(--muted);
+  --ac: var(--accent-ink); --ac-soft: var(--accent-soft); --ask: var(--warning); --signal: var(--warning);
+  --hl-q: color-mix(in srgb, #FFB02E 22%, transparent); --hl-q-on: color-mix(in srgb, #FFB02E 40%, transparent);
+  --hl-c: var(--fill-2); --hl-c-on: var(--fill-3); --hl-r: var(--fill-1);
+  --focus-tint: var(--surface); --card-control: var(--raised); --card-control-hover: var(--soft);
+  --radius: var(--radius-card);
+}
+:root[data-doc-theme="shelf"]:is([data-theme="dark"], [data-scheme="dark"]) {
+  --ground: #000000; --surface: #1C1C1E; --raised: #1C1C1E; --soft: #2C2C2E; --surface-active: #3A3A3C;
+  --ink: #F6F4F7; --muted: #98989F; --hairline: #2C2C2E; --control: #48484A;
+  --fill-1: rgb(246 244 247 / .06); --fill-2: rgb(246 244 247 / .10); --fill-3: rgb(246 244 247 / .16);
+  --accent: #F6F4F7; --accent-hover: #DCDADE; --accent-ink: #F6F4F7; --accent-soft: rgb(246 244 247 / .12); --accent-fg: #131217; --focus: #F6F4F7;
+  --danger: #FF6B7A; --danger-fill: #FF6B7A; --warning: #FFBB57; --success: #69DD8E;
+  --hl-q: color-mix(in srgb, #FFB02E 24%, transparent); --hl-q-on: color-mix(in srgb, #FFB02E 42%, transparent);
+  --focus-tint: #1C1C1E; --card-control: #2C2C2E; --card-control-hover: #3A3A3C;
+}
+@media (prefers-color-scheme: dark) {
+  :root[data-doc-theme="shelf"]:not([data-theme="light"], [data-scheme="light"]) {
+    --ground: #000000; --surface: #1C1C1E; --raised: #1C1C1E; --soft: #2C2C2E; --surface-active: #3A3A3C;
+    --ink: #F6F4F7; --muted: #98989F; --hairline: #2C2C2E; --control: #48484A;
+    --fill-1: rgb(246 244 247 / .06); --fill-2: rgb(246 244 247 / .10); --fill-3: rgb(246 244 247 / .16);
+    --accent: #F6F4F7; --accent-hover: #DCDADE; --accent-ink: #F6F4F7; --accent-soft: rgb(246 244 247 / .12); --accent-fg: #131217; --focus: #F6F4F7;
+    --danger: #FF6B7A; --danger-fill: #FF6B7A; --warning: #FFBB57; --success: #69DD8E;
+    --hl-q: color-mix(in srgb, #FFB02E 24%, transparent); --hl-q-on: color-mix(in srgb, #FFB02E 42%, transparent);
+    --focus-tint: #1C1C1E; --card-control: #2C2C2E; --card-control-hover: #3A3A3C;
+  }
+}
+:root[data-doc-theme="shelf"] body { font: 15px/22px var(--font-system); }
+:root[data-doc-theme="shelf"] .doc { font-size: 17px; line-height: 24px; }
+:root[data-doc-theme="shelf"] .lede { font-size: 20px; line-height: 26px; }
+:root[data-doc-theme="shelf"] h1 { font: 500 34px/40px var(--font-brand); letter-spacing: -.015em; }
+:root[data-doc-theme="shelf"] h2 { font: 600 20px/26px var(--font-system); letter-spacing: 0; }
+:root[data-doc-theme="shelf"] code { border-radius: 6px; font-size: 14px; }
+:root[data-doc-theme="shelf"] .doc a, :root[data-doc-theme="shelf"] .answer-body a { color: var(--ink); text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 3px; text-decoration-color: color-mix(in srgb, currentColor 40%, transparent); }
+/* Shelf controls are rounded rects on a grey fill, not outlined pills; primary is ink on paper. */
+:root[data-doc-theme="shelf"] :is(.btn, .talk) { border-radius: var(--radius-small); border-color: transparent; background: var(--surface); }
+:root[data-doc-theme="shelf"] :is(.btn, .talk):hover { background: var(--soft); }
+:root[data-doc-theme="shelf"] :is(.btn, .talk):active { background: var(--surface-active); }
+:root[data-doc-theme="shelf"] .card .btn:not(.primary) { background: var(--card-control); }
+:root[data-doc-theme="shelf"] .card .btn:not(.primary):hover { background: var(--card-control-hover); }
+:root[data-doc-theme="shelf"] .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-fg); }
+:root[data-doc-theme="shelf"] .btn.primary:hover { background: var(--accent-hover); filter: none; }
+:root[data-doc-theme="shelf"] .toggle input::after { background: var(--page); }
+:root[data-doc-theme="shelf"] .toggle input:checked::after { background: var(--accent-fg); }
+:root[data-doc-theme="shelf"] .fig svg .w { fill: var(--accent-fg); }
+:root[data-doc-theme="shelf"] :is(.quotes li, .scen, .card, .other-options button, .reply textarea) { border-radius: var(--radius-card); }
+:root[data-doc-theme="shelf"] .card { font-size: 15px; line-height: 22px; }
+:root[data-doc-theme="shelf"] .card .head { font-size: 13px; line-height: 18px; }
+:root[data-doc-theme="shelf"] .card .q { font-size: 15px; }
+:root[data-doc-theme="shelf"] .card.on { border-color: var(--control); }
+:root[data-doc-theme="shelf"] .rec { border-radius: var(--radius-small); }
+:root[data-doc-theme="shelf"] .rec .lbl, :root[data-doc-theme="shelf"] .msgs .lbl, :root[data-doc-theme="shelf"] .other-options .lbl { font-size: 13px; font-weight: 600; letter-spacing: 0; text-transform: none; }
+:root[data-doc-theme="shelf"] .reply textarea { background: var(--card-control); border-color: transparent; }
+:root[data-doc-theme="shelf"] .reply textarea:focus { outline: 2px solid var(--focus); outline-offset: 2px; border-color: var(--line); }
+:root[data-doc-theme="shelf"] .chip { font-size: 13px; line-height: 18px; background: var(--surface); }

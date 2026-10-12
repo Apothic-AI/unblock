@@ -1382,6 +1382,9 @@ let lastPayload = ''
 function accept(payload: { scope: ScopeV2; notes?: any[]; items?: LiveItem[]; estimates?: unknown[]; failed?: Refused[]; error?: string }): boolean { const changed = (payload.items || []).map(mergeItem).some(Boolean); if (changed) patchLive(); if (payload.estimates && setBuildEstimates(payload.estimates)) lastPayload = ''; if (!payload.scope) { lastPayload = ''; doc.textContent = payload.error || 'The lane has not published a doc yet.'; return false }; const fingerprint = payloadKey(payload); if (fingerprint === lastPayload) return false; lastPayload = fingerprint
   const firstPayload = !scope
   scope = payload.scope
+  // The doc's own design system, apart from data-theme (light/dark); a doc without one drops the last doc's.
+  if (scope.theme) document.documentElement.dataset.docTheme = scope.theme
+  else delete document.documentElement.dataset.docTheme
   settleQueuedApproval()
   publishApproval()
   const settled = new Set(scope.threads.flatMap(t => [...t.messages.map(m => (m as any).client_id), (t.resolution as any)?.client_id, (t as any).parked_client_id]).concat((payload.notes || []).map(note => note.client_id)))

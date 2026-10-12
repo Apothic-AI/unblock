@@ -13,6 +13,8 @@ export const THREAD_ID = /^T\d{1,4}$/
 export const KPI_ID = /^[a-z0-9][a-z0-9-]{0,39}$/
 // An explainer may name its answerer by family alias (`fable-latest`); `route resolve` turns it into a model id at answer time.
 export const MODEL_ALIAS = /^[a-z][a-z0-9-]{0,40}$/
+/** A per-document design system the renderer applies, e.g. 'shelf'; absent means the Rails look. */
+export const DOC_THEME = /^[a-z][a-z0-9-]{0,31}$/
 const KPI_SOURCE = /^[a-z][a-z-]{0,31}(:[A-Za-z0-9_.:\/-]{1,64})?$/
 const KPI_KEYS = ['id', 'name', 'source', 'target', 'direction', 'window_days']
 export const APPS = ['recruiter', 'closer', 'rails-admin']
@@ -211,6 +213,7 @@ export function validateScope(scope) {
   if (scope.kind !== undefined) check(DOC_KINDS.includes(scope.kind), 'invalid kind')
   if (scope.state !== undefined) check(scope.state === 'draft' || scope.state === 'published', 'invalid state')
   if (scope.parent !== undefined) check(typeof scope.parent === 'string' && SLUG.test(scope.parent), 'invalid parent')
+  if (scope.theme !== undefined) check(typeof scope.theme === 'string' && DOC_THEME.test(scope.theme), 'invalid theme')
   if (scope.destination !== undefined) {
     const destination = scope.destination
     check(object(destination) && Object.keys(destination).every((key) => key === 'where' || key === 'target') && DOC_WHERES.includes(destination.where)

@@ -152,12 +152,16 @@ export interface ScopeV2 {
   destination?: { where: DocWhere; target?: string }
   /** Optional parent slug. Validated only; set by `scope new --parent`. */
   parent?: string
+  /** Optional per-document design system, DOC_THEME (e.g. 'shelf'). Set by `scope new --theme`; the page sets it as data-doc-theme. */
+  theme?: string
   approval?: ScopeApproval
   threads: Thread[]
 }
 
 /** /^[a-z][a-z0-9-]{0,39}$/ */
 export const SECTION_ID: RegExp
+/** /^[a-z][a-z0-9-]{0,31}$/ */
+export const DOC_THEME: RegExp
 /** /^T\d{1,4}$/ */
 export const THREAD_ID: RegExp
 export const APPS: ['recruiter', 'closer', 'rails-admin']

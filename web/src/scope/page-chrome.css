@@ -25,3 +25,15 @@ body.in-frame .pc-comments { top: 0; }
 @media (max-width: 899px) {
   #page > .pc-head { padding: 24px 16px 0; grid-template-columns: minmax(0, 1fr); column-gap: 0; }
 }
+/* Doc theme "shelf" (tokens in scope.css): the title in Geologica 500, ink-on-paper primary actions, grey-fill secondary ones. */
+:root[data-doc-theme="shelf"] {
+  --type-large-title-size: 34px; --type-large-title-line: 40px;
+  --type-large-title-weight: 500; --type-large-title-tracking: -.015em;
+  --shadow-float: var(--shadow-2);
+}
+:root[data-doc-theme="shelf"] .pc-title { font-family: var(--font-brand); }
+:root[data-doc-theme="shelf"] .pc-bar-title { font-weight: 600; }
+:root[data-doc-theme="shelf"] :is(.btn--primary, .pc-action.btn--primary) { background: var(--accent); border-color: var(--accent); color: var(--accent-fg); }
+:root[data-doc-theme="shelf"] .pc-action { border-color: transparent; background: var(--surface); }
+:root[data-doc-theme="shelf"] .pc-action:hover { background: var(--soft); }
+:root[data-doc-theme="shelf"] .pc-bar { background: color-mix(in srgb, var(--page) 88%, transparent); backdrop-filter: saturate(1.8) blur(20px); }
