@@ -106,14 +106,21 @@ test('own comments occupy the editable input once and preserve agent replies', a
         const card = [...document.querySelectorAll('.card[data-t="'+id+'"]')].find(n => innerWidth >= 600 || n.getClientRects().length);
         if (!card) { if (id === 'T2' && innerWidth < 600) continue; throw Error('Comment missing'); }
         if (card.querySelector('textarea').value !== text || card.querySelector('.q')) throw Error('Comment is empty or duplicated: '+id);
+        if (!card.querySelector('[data-action="save-comment"]').hidden) throw Error('Save shown before editing');
+        if (id === 'T2' && !(card.querySelector('.card-state').compareDocumentPosition(card.querySelector('textarea')) & Node.DOCUMENT_POSITION_FOLLOWING)) throw Error('General context must precede input');
+        if (id === 'T1' && !(card.querySelector('.msgs').compareDocumentPosition(card.querySelector('.actions')) & Node.DOCUMENT_POSITION_FOLLOWING)) throw Error('Actions must follow reply');
       }
       if (!document.querySelector('.card[data-t="T1"] .msgs').textContent.includes('Agent reply stays')) throw Error('Reply missing');
       if (innerWidth >= 600 && !document.querySelector('.card[data-t="T3"] .q').textContent.includes('Agent question stays')) throw Error('Question changed');
       return 'posted text appears once';
     }` },
     { fill: ['.card[data-t="T1"] textarea:visible', 'Edited anchored comment'] },
+    { wait_for: '.card[data-t="T1"] [data-action="save-comment"]:visible' },
+    { fill: ['.card[data-t="T1"] textarea:visible', 'My anchored comment'] },
+    { wait_fn: `() => [...document.querySelectorAll('.card[data-t="T1"] [data-action="save-comment"]')].every(n => n.hidden)` },
+    { fill: ['.card[data-t="T1"] textarea:visible', 'Edited anchored comment'] },
     { click: '.card[data-t="T1"] [data-action="save-comment"]:visible' },
-    { wait_fn: `() => [...document.querySelectorAll('.card[data-t="T1"] textarea')].find(n => n.getClientRects().length)?.value === 'Edited anchored comment' && !document.querySelector('.card[data-t="T1"] [data-action="save-comment"]').disabled` },
+    { wait_fn: `() => [...document.querySelectorAll('.card[data-t="T1"] textarea')].find(n => n.getClientRects().length)?.value === 'Edited anchored comment' && [...document.querySelectorAll('.card[data-t="T1"] [data-action="save-comment"]')].every(n => n.hidden)` },
     { eval: `async () => { const data = await (await fetch('/api/scope/inputs')).json(); const messages = data.scope.threads.find(t => t.id === 'T1').messages; if (messages.length !== 2 || messages[0].text !== 'Edited anchored comment' || messages[1].text !== 'Agent reply stays') throw Error('Edit not persisted in place'); return 'edit persisted'; }` },
   ]))
   try {
