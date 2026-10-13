@@ -286,6 +286,7 @@ export function createScopeRoutes({ store, webRoot, sendJson, sendText, readJson
               }
               const args = ['post', '--to', targetPane, '--from', `scope:${slug}`, '--kind', kind, '--topic', options.topic ?? `scope-${slug}`, '--wake', wake]
               if (ref) args.push('--ref', ref)
+              if (options.ownerWords) args.push('--owner-words')
               args.push('--text', text)
               const bulletin = await new Promise((resolve, reject) => {
                 const command = scopePostCommand(lanePost || 'lane-post', args, scope?.host)
@@ -322,7 +323,7 @@ export function createScopeRoutes({ store, webRoot, sendJson, sendText, readJson
           // A note already held is not re-marked on every pause tick, so the page isn't redrawn each time.
           const ids = comments.filter((note) => status !== 'held' || note.delivery !== 'held').map((note) => note.id)
           emitNotes(store.markScopeNotes(ids, status, status === 'delivered' ? new Date().toISOString() : null, status === 'delivered' ? extra ?? {} : {}))
-        }, { ...(quiet ? { kind: 'info', wake: 'never' } : {}), ref: `scope:${slug}:notes:${comments.map(note => note.id).join(',')}`, topic: `scope-${slug}-n${comments[0].id}` })
+        }, { ownerWords: true, ...(quiet ? { kind: 'info', wake: 'never' } : {}), ref: `scope:${slug}:notes:${comments.map(note => note.id).join(',')}`, topic: `scope-${slug}-n${comments[0].id}` })
         for (const note of laneNotes) {
           let line = `[scoping ${slug}] Note from Alex's voice call (not a comment): ${compact(note.text)}`
           if (line.length > 700) line = `${cutUnits(line, 699)}…`
