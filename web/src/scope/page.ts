@@ -187,7 +187,7 @@ function refreshCard(kept: HTMLElement, fresh: HTMLElement) {
     fresh.append(nextReply)
   }
   const nextTextarea = nextReply?.querySelector('textarea'), note = reply?.querySelector<HTMLElement>('.composer-note')
-  if (reply && nextReply && textarea && nextTextarea) {
+  if (reply && nextReply && textarea && nextTextarea && textarea.dataset.draft === nextTextarea.dataset.draft) {
     const nextNote = nextReply.querySelector('.composer-note')
     const strip = reply.querySelector('.thumbs.draft')
     const nodes = [...nextReply.childNodes].flatMap(node => node === nextTextarea ? note && !nextNote && !reply.hasAttribute('data-retained-reply') ? [note, textarea] : [textarea] : node instanceof Element && node.matches('.thumbs.draft') && strip ? [strip] : [node])
@@ -197,8 +197,9 @@ function refreshCard(kept: HTMLElement, fresh: HTMLElement) {
   }
   kept.className = fresh.className
   kept.toggleAttribute('data-sending', fresh.hasAttribute('data-sending'))
-  const nodes = [...fresh.childNodes].map(node => node === nextReply && reply ? reply : node)
-  replaceAround(kept, nodes, reply)
+  const preserveReply = reply && textarea?.dataset.draft === nextTextarea?.dataset.draft ? reply : null
+  const nodes = [...fresh.childNodes].map(node => node === nextReply && preserveReply ? preserveReply : node)
+  replaceAround(kept, nodes, preserveReply)
   return kept
 }
 const marks = (id: string) => {
@@ -533,8 +534,10 @@ function baseCardHtml(t: Thread) {
   const mode = !sending.has(t.id) && (modes.get(t.id) || (t.kind === 'comment' && !t.recommendation ? 'reply' : null))
   const compose = mode && !(t.recommendation && mode === 'else') && { no: ["What's wrong with it? (optional)", 'Send No'], else: ['Your answer', 'Send answer'], reply: [t.kind === 'question' ? 'Ask the lane something' : 'Reply', t.kind === 'question' ? 'Send' : 'Reply'] }[mode]
   const menu = threadMenu(t)
+  const ownComment = isOpen && t.kind === 'comment' && t.messages[0]?.from === 'alex' && !modes.has(t.id)
   let body = ''
-  if (compose && (isOpen || mode === 'reply')) body = `<div class="reply only-on"><textarea data-draft="${t.id}" rows="${modes.has(t.id) ? 2 : 1}" placeholder="${esc(compose[0])}">${esc(getDraft(t.id))}</textarea>${imageStrip(getImages(t.id), true, t.id)}<p class="error" role="alert">${esc(errors.get(t.id))}</p><div class="actions">${attachControl}<button class="btn primary" data-action="${t.kind === 'comment' ? 'reply' : 'send'}">${compose[1]}</button>${isOpen && docFlags().resolve ? '<button class="btn" data-action="resolve">Resolve</button>' : ''}${modes.has(t.id) ? '<button class="btn" data-action="cancel">Cancel</button>' : ''}</div></div>`
+  if (ownComment) body = `<div class="reply"><textarea data-draft="${t.id}:comment" rows="2" aria-label="Your comment">${esc(drafts.get(`${t.id}:comment`) ?? storage.get(draftStorageKey(`${t.id}:comment`)) ?? t.messages[0].text)}</textarea>${imageStrip(t.messages[0].images)}<p class="error" role="alert">${esc(errors.get(t.id))}</p><div class="actions"><button class="btn primary" data-action="save-comment">Save</button><button class="btn" data-action="menu-reply">Reply</button>${docFlags().resolve ? '<button class="btn" data-action="resolve">Resolve</button>' : ''}</div></div>`
+  else if (compose && (isOpen || mode === 'reply')) body = `<div class="reply only-on"><textarea data-draft="${t.id}" rows="${modes.has(t.id) ? 2 : 1}" placeholder="${esc(compose[0])}">${esc(getDraft(t.id))}</textarea>${imageStrip(getImages(t.id), true, t.id)}<p class="error" role="alert">${esc(errors.get(t.id))}</p><div class="actions">${attachControl}<button class="btn primary" data-action="${t.kind === 'comment' ? 'reply' : 'send'}">${compose[1]}</button>${isOpen && docFlags().resolve ? '<button class="btn" data-action="resolve">Resolve</button>' : ''}${modes.has(t.id) ? '<button class="btn" data-action="cancel">Cancel</button>' : ''}</div></div>`
   else if (isOpen && t.rejected_at) body = '<div class="waiting"><span class="dot"></span>Rejected, waiting for a new option</div>'
   else if (isOpen && (t.kind === 'question' || t.recommendation)) {
     // Alex, 2026-10-02 19:45 ET: a note is a reply to the lane, never a decision; Approve takes the recommendation.
@@ -543,12 +546,12 @@ function baseCardHtml(t: Thread) {
   }
   const newRec = !t.rejected_at && t.messages.some(m => m.kind === 'option')
   const state = [t.anchor.rect ? `Slide ${slideNumber(t.anchor.section)} · ${esc(scope!.doc.sections.find(s => s.id === t.anchor.section)?.heading)}` : '', copiedLinks.has(t.id) ? 'Link copied' : deliveryChip(t.id), handlingChipHtml(t), t.anchor.embed ? `<button class="btn small" data-action="jump-text">${missing.has(t.id) ? 'Embed changed' : 'Embed ' + esc(t.anchor.embed.src)} · <q>${esc(t.anchor.embed.quote)}</q></button>` : t.anchor.general ? 'General comment' : t.anchor.t != null ? `<span class="moment">at ${moment(t.anchor.t)}</span>` : ''].filter(Boolean).join(' · ')
-  return `<div class="head"><span class="kind"><span class="dot ${isOpen ? t.kind : 'resolved'}"></span><span class="who">${label}</span></span>${replyMarker(t) ? '<span class="new-reply" data-unread>New reply</span>' : ''}<span class="when">${time(t.created_at)}</span>${isOpen ? checkButton : ''}${moreButton}</div>${menu}${chatMessageHtml(t, 0, `<div class="q">${esc(t.messages[0]?.text)}</div>${imageStrip(t.messages[0]?.images)}`)}${t.anchor.crop ? `<div class="thumbs"><button type="button" class="thumb region-thumb" data-action="view-image"><img src="${assetUrl(t.anchor.crop, `${endpoint}/assets`)}" alt="Selected slide area"></button></div>` : ''}${state ? `<p class="card-state">${state}</p>` : ''}
+  return `<div class="head"><span class="kind"><span class="dot ${isOpen ? t.kind : 'resolved'}"></span><span class="who">${label}</span></span>${replyMarker(t) ? '<span class="new-reply" data-unread>New reply</span>' : ''}<span class="when">${time(t.created_at)}</span>${isOpen ? checkButton : ''}${moreButton}</div>${menu}${ownComment ? body : chatMessageHtml(t, 0, `<div class="q">${esc(t.messages[0]?.text)}</div>${imageStrip(t.messages[0]?.images)}`)}${t.anchor.crop ? `<div class="thumbs"><button type="button" class="thumb region-thumb" data-action="view-image"><img src="${assetUrl(t.anchor.crop, `${endpoint}/assets`)}" alt="Selected slide area"></button></div>` : ''}${state ? `<p class="card-state">${state}</p>` : ''}
   ${isOpen && t.recommendation ? `<div class="rec${newRec ? ' new' : ''}"><span class="lbl">Recommended</span><span class="txt">${esc(t.recommendation)}</span></div>` : ''}
   ${isOpen && t.kind === 'question' && t.options?.length ? `<details class="other-options only-on"><summary>Other options (${t.options.length - 1})</summary>${t.options.slice(1).map((option, i) => `<div class="other-option"><span>${esc(option)}</span><button class="btn small" data-action="option" data-option="${i + 1}">Pick this</button></div>`).join('')}</details>` : ''}
   ${isOpen && t.why ? `<details class="why only-on"><summary>Why</summary><p>${esc(t.why)}</p></details>` : ''}
   ${t.messages.length > 1 ? `<div class="msgs only-on">${t.messages.slice(1).map((m, i) => chatMessageHtml(t, i + 1, `<div>${m.kind === 'reject' ? 'No' + (m.text ? ': ' : '') : ''}${esc(m.text)}</div>${imageStrip(m.images)}`)).join('')}</div>` : ''}
-  ${!isOpen ? `<div class="settled">${t.status === 'parked' ? '<b>Parked.</b> Not answered; the lane leaves it for later.' : 'Resolved'}</div><button class="btn" data-action="reopen">Reopen</button>` : ''}${sending.has(t.id) ? (sending.get(t.id)!.failed ? '' : sendingLine(sending.get(t.id)!)) + (sending.get(t.id)!.failed ? body : '') : body}${!compose && errors.has(t.id) ? `<p class="error" role="alert">${esc(errors.get(t.id))}</p>` : ''}`
+  ${!isOpen ? `<div class="settled">${t.status === 'parked' ? '<b>Parked.</b> Not answered; the lane leaves it for later.' : 'Resolved'}</div><button class="btn" data-action="reopen">Reopen</button>` : ''}${sending.has(t.id) ? (sending.get(t.id)!.failed ? '' : sendingLine(sending.get(t.id)!)) + (sending.get(t.id)!.failed ? body : '') : ownComment ? '' : body}${!compose && errors.has(t.id) ? `<p class="error" role="alert">${esc(errors.get(t.id))}</p>` : ''}`
 }
 function cardHtml(t: Thread) {
   const card = document.createElement('div'); card.innerHTML = baseCardHtml(t)
@@ -1016,6 +1019,16 @@ async function action(name: string, target: HTMLElement, imageSnapshot?: string[
     try { await write(item.route, { ...item.body, retry_of: item.clientId }, item.id); markRefusedDone(item.clientId); if (sending.get(sendKey) === item) sending.delete(sendKey); if (postedClient === item.clientId) postedClient = null }
     catch (error) { item.failed = { status: 0, error: error instanceof Error ? error.message : 'Could not send' } }
     finally { pending.delete(sendKey); renderCards() }
+    return
+  }
+  if (name === 'save-comment' && t) {
+    if (pending.has(t.id)) return
+    const editKey = `${t.id}:comment`, text = getDraft(editKey).trim()
+    if (!text || text === t.messages[0].text) return
+    pending.add(t.id); disablePending()
+    try { await write(`/${t.id}/edit`, { text }, t.id); deleteDraft(editKey); document.querySelectorAll<HTMLTextAreaElement>(`textarea[data-draft="${editKey}"]`).forEach(input => { input.value = text }); errors.delete(t.id) }
+    catch (error) { errors.set(t.id, error instanceof Error ? error.message : 'Could not save') }
+    finally { pending.delete(t.id); renderCards() }
     return
   }
   if (name === 'attach') { target.closest('.reply')?.querySelector<HTMLInputElement>('[data-images]')?.click(); return }
