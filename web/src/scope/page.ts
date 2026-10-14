@@ -38,19 +38,25 @@ let postedClient: string | null = null
 let detachedPin: { id: string; top: number } | null = null
 function focusedCard() { return [...cards.querySelectorAll<HTMLElement>('.card[data-t]'), ...detached.querySelectorAll<HTMLElement>('.card[data-t]')].find(n => n.dataset.t === focused) }
 let showResolved = storage.get('scope:showResolved') === 'true'
-const commentsBar = commentsHeader($('.side-head'), { open: 0, index: 0, total: 0, showResolved, onPrev: () => step(-1), onNext: () => step(1), onShowResolved: checked => { showResolved = checked; storage.set('scope:showResolved', String(checked)); if (!checked && scope?.threads.find(t => t.id === focused)?.status !== 'open') focused = null; renderCards() } })
+const commentsBar = embed ? commentsHeader($('.side-head'), { open: 0, index: 0, total: 0, showResolved, onPrev: () => step(-1), onNext: () => step(1), onShowResolved: checked => { showResolved = checked; storage.set('scope:showResolved', String(checked)); if (!checked && scope?.threads.find(t => t.id === focused)?.status !== 'open') focused = null; renderCards() } }) : null
 let chrome: ReturnType<typeof mountPage> | null = null, chromeSignature = ''
-const APP_NAME = { recruiter: 'Recruiter', closer: 'Closer', 'rails-admin': 'Development area' }
+const APP_NAME = { recruiter: 'Recruiter', closer: 'Closer', 'rails-admin': 'Rails' }
 function hostDrawsApprove() { try { return window.frameElement?.getAttribute('data-approve-host') === '1' } catch { return false } }
 const docFlags = () => kindSpec(scope)
 const navList = () => docFlags().resolve ? open() : ordered()
+function projectLabel() {
+  const project = (scope as ScopeV2 & { project?: string | { name?: string } })?.project
+  const explicit = typeof project === 'string' ? project : project?.name
+  return (typeof explicit === 'string' && explicit.trim()) || APP_NAME[appOf(scope!)]
+}
 function chromeSpec() {
   const flags = docFlags()
   const actions: PageAction[] = []
   if (boot.comment !== 'host') actions.push({ id: 'comment', label: flags.margin, kind: 'screen-only', placement: 'title', run: () => { openGeneralComment(); return { ok: true, speech: flags.margin === 'Ask' ? 'Ask about the whole doc.' : 'Comment on the whole doc.' } } })
+  if (flags.resolve && ordered().some(thread => thread.status !== 'open')) actions.push({ id: 'resolved-comments', label: showResolved ? 'Hide resolved comments' : 'Show resolved comments', kind: 'screen-only', placement: 'menu', run: () => { showResolved = !showResolved; storage.set('scope:showResolved', String(showResolved)); if (!showResolved && scope?.threads.find(thread => thread.id === focused)?.status !== 'open') focused = null; renderCards(); syncChrome(); return { ok: true, speech: showResolved ? 'Resolved comments are shown.' : 'Resolved comments are hidden.' } } })
   if (flags.approve && (boot.approve !== 'host' || !hostDrawsApprove()) && !isApproved() && !(queuedApproval && !queuedApproval.failed)) actions.push({ id: 'approve-scope', label: 'Approve scope', kind: 'move', placement: 'title', run: () => { openApproveDialog(); return { ok: true, speech: 'Approve scope is open.' } } })
   if (boot.voice !== false || typeof boot.voiceUrl === 'string' && /^https?:\/\//i.test(boot.voiceUrl)) actions.push({ id: 'voice', label: embed ? 'Talk' : 'Talk it through by voice', kind: 'screen-only', placement: embed ? 'title' : 'menu', run: () => { if (boot.voice !== false) $('#talk').click(); else window.open(boot.voiceUrl, '_blank', 'noopener'); return { ok: true, speech: 'Voice is open.' } } })
-  return { title: [...((oneScreen(scope) ? (scope!.doc.sections.find(s => s.id === 'title')?.heading || scope!.title).replace(/\s+\{#[^}]+\}\s*$/, '') : scope!.title) || scope!.doc.sections.find(s => s.id === 'title')?.heading || slug)].slice(0, 80).join(''), description: flags.margin === 'Ask' ? `Explainer · revision ${scope!.revision}` : `${APP_NAME[appOf(scope!)]} · revision ${scope!.revision}`, back: boot.back && typeof boot.back.label === 'string' && typeof boot.back.route === 'string' ? boot.back : { label: flags.label, route: '/s/' }, actions, primary: actions.some(a => a.id === 'approve-scope') ? 'approve-scope' : undefined, chat: { onToggle: openGeneralComment }, initialize: false as const, forwardKeys: true }
+  return { title: [...((oneScreen(scope) ? (scope!.doc.sections.find(s => s.id === 'title')?.heading || scope!.title).replace(/\s+\{#[^}]+\}\s*$/, '') : scope!.title) || scope!.doc.sections.find(s => s.id === 'title')?.heading || slug)].slice(0, 80).join(''), description: flags.margin === 'Ask' ? `Explainer · revision ${scope!.revision}` : `${projectLabel()} · revision ${scope!.revision}`, back: boot.back && typeof boot.back.label === 'string' && typeof boot.back.route === 'string' ? boot.back : { label: projectLabel(), route: '/s/' }, actions, primary: actions.some(a => a.id === 'approve-scope') ? 'approve-scope' : undefined, chat: { onToggle: () => { if (composing?.general) { composing = null; closeSheet(); renderCards() } else openGeneralComment() } }, initialize: false as const, forwardKeys: true }
 }
 function syncChrome() {
   if (!scope) return
@@ -807,11 +813,12 @@ function updateCount() {
   const list = navList(), i = list.findIndex(t => t.id === focused), flags = docFlags()
   document.body.classList.toggle('visual', kindOf(scope) === 'visual')
   document.body.classList.toggle('explainer', flags.qa)
-  commentsBar.update({ open: list.length, index: i + 1, total: list.length, showResolved, label: flags.resolve ? undefined : 'Questions', resolved: flags.resolve ? undefined : false })
+  commentsBar?.update({ open: list.length, index: i + 1, total: list.length, showResolved, label: flags.resolve ? undefined : 'Questions', resolved: flags.resolve ? undefined : false })
   const resolvedToggle = document.querySelector<HTMLInputElement>('.side-head input[type="checkbox"]'); if (resolvedToggle) { resolvedToggle.id = 'showResolved'; const label = resolvedToggle.parentElement!; for (const node of [...label.childNodes]) if (node.nodeType === Node.TEXT_NODE) node.textContent = ` Resolved (${ordered().filter(t => t.status !== 'open').length})` }
   const openLabel = $('#openLabel')
   if (!flags.resolve) { const count = document.createElement('span'); count.className = 'q-count'; count.textContent = String(list.length); openLabel.replaceChildren('Questions', count) }
   else openLabel.textContent = `${list.length} open`
+  syncChrome()
 }
 // Only a click on a comment seeks its recording; scroll-follow, posting and redraws leave it where it is.
 function seekMoment(id: string) {
@@ -865,7 +872,7 @@ function renderSheet() {
   const list = navList(), i = list.findIndex(x => x.id === t.id)
   sheet.toggleAttribute('data-sending', sending.has(t.id)); if (sending.has(t.id)) sheet.dataset.sending = 'true'
   const fresh = document.createElement('div')
-  fresh.innerHTML = `<div class="grab"></div><div class="quote">${t.anchor.embed ? `Embed ${esc(t.anchor.embed.src)} · <q>${esc(t.anchor.embed.quote)}</q>` : t.anchor.general ? (docFlags().margin === 'Ask' ? 'The whole doc' : 'General comment') : `On <q>${esc(t.anchor.quote)}</q>`}</div><div class="card on ${t.kind} ${t.status}${docFlags().qa ? ' explainer' : ''}" data-t="${t.id}">${cardHtml(t)}</div>${i >= 0 ? `<div class="nav"><span>${i + 1} of ${list.length}${docFlags().resolve ? ' open' : ''}</span><span class="spacer"></span><button class="icon-btn" data-go="-1" aria-label="Previous">↑</button><button class="icon-btn" data-go="1" aria-label="Next">↓</button></div>` : ''}`
+  fresh.innerHTML = `<button type="button" class="scope-close" data-action="close" aria-label="Close comments">×</button><div class="grab"></div><div class="quote">${t.anchor.embed ? `Embed ${esc(t.anchor.embed.src)} · <q>${esc(t.anchor.embed.quote)}</q>` : t.anchor.general ? (docFlags().margin === 'Ask' ? 'The whole doc' : 'General comment') : `On <q>${esc(t.anchor.quote)}</q>`}</div><div class="card on ${t.kind} ${t.status}${docFlags().qa ? ' explainer' : ''}" data-t="${t.id}">${cardHtml(t)}</div>${i >= 0 ? `<div class="nav"><span>${i + 1} of ${list.length}${docFlags().resolve ? ' open' : ''}</span><span class="spacer"></span><button class="icon-btn" data-go="-1" aria-label="Previous">↑</button><button class="icon-btn" data-go="1" aria-label="Next">↓</button></div>` : ''}`
   const active = document.activeElement as HTMLElement | null
   const activeCard = active?.matches('textarea[data-draft]') ? active.closest<HTMLElement>('.card') : null
   const retained = [...sheet.querySelectorAll<HTMLTextAreaElement>('[data-retained-reply] textarea')].find(input => input.value.trim())?.closest<HTMLElement>('.card')
@@ -996,6 +1003,7 @@ function renderComposer() {
   if (phone()) document.body.classList.add('sheet-open')
 }
 async function action(name: string, target: HTMLElement, imageSnapshot?: string[]) {
+  if (name === 'close') { closeSheet(); return }
   if (name === 'general-comment') { openGeneralComment(); return }
   if (name === 'comment') { openSelectionComment(); return }
   const id = target.closest<HTMLElement>('[data-t]')?.dataset.t, t = scope?.threads.find(t => t.id === id), key = target.closest('.composer') ? target.closest('.composer')?.querySelector<HTMLElement>('[data-draft]')?.dataset.draft || 'composer' : id!

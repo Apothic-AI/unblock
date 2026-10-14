@@ -13,7 +13,7 @@
  *   ~/.config/unblock/config.json
  *   {
  *     "public_origin": "https://studio.tailf266ac.ts.net:8797",
- *     "scope_link_template": "https://app.rails.so/workspace/rails-admin?route=scoping/{slug}",
+ *     "scope_link_template": "https://studio.tailf266ac.ts.net:8797/s/{slug}",
  *     "trusted_proxy": "tailscale",
  *     "allowed_users": ["a.neyman17@gmail.com"],
  *     "root": "/path/to/the/canonical/checkout"

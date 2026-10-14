@@ -696,3 +696,9 @@ body.show-resolved mark.hl.region.resolved, mark.hl.region.resolved.unread { dis
 .thumbs .region-thumb { width: auto; height: 64px; aspect-ratio: auto; }
 .thumbs .region-thumb img { width: auto; height: 64px; object-fit: contain; }
 @media (max-width: 899px) { body.visual .layout { grid-template-columns: minmax(0, 1fr); } }
+
+body:not(.embed) .side-head, body:not(.embed) .open-chip { display: none; }
+body:not(.embed) .side { padding-top: 0; }
+body:not(.embed) > .talk { bottom: max(16px, calc(env(safe-area-inset-bottom) + 16px)); }
+
+.scope-close { position: absolute; inset-block-start: 8px; inset-inline-end: 12px; min-width: 44px; min-height: 44px; background: var(--raised); color: var(--ink); border: 0; border-radius: 50%; cursor: pointer; }
