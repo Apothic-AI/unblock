@@ -13,6 +13,8 @@ export const THREAD_ID = /^T\d{1,4}$/
 export const KPI_ID = /^[a-z0-9][a-z0-9-]{0,39}$/
 // An explainer may name its answerer by family alias (`fable-latest`); `route resolve` turns it into a model id at answer time.
 export const MODEL_ALIAS = /^[a-z][a-z0-9-]{0,40}$/
+/** A per-document design system the renderer applies, e.g. 'shelf'; absent means the Rails look. */
+export const DOC_THEME = /^[a-z][a-z0-9-]{0,31}$/
 const KPI_SOURCE = /^[a-z][a-z-]{0,31}(:[A-Za-z0-9_.:\/-]{1,64})?$/
 const KPI_KEYS = ['id', 'name', 'source', 'target', 'direction', 'window_days']
 export const APPS = ['recruiter', 'closer', 'rails-admin']
@@ -175,6 +177,24 @@ export function normalizeKpis(list) {
   return { kpis }
 }
 
+export function normalizePerson(value) {
+  if (!object(value) || !['person', 'agent'].includes(value.kind) || typeof value.id !== 'string' || !value.id.trim() || typeof value.name !== 'string' || !value.name.trim()) return undefined
+  const person = { kind: value.kind, id: value.id, name: value.name }
+  try {
+    if (typeof value.photo_url === 'string' && new URL(value.photo_url).protocol === 'https:') person.photo_url = value.photo_url
+  } catch {}
+  return person
+}
+
+export function normalizeHandling(value) {
+  if (!object(value) || !['workflow', 'teammate', 'research'].includes(value.state) || typeof value.at !== 'string') return undefined
+  const handling = { state: value.state, at: value.at }
+  if (typeof value.note === 'string') handling.note = value.note.slice(0, 120)
+  const by = normalizePerson(value.by)
+  if (by) handling.by = by
+  return handling
+}
+
 export function validateScope(scope) {
   const problems = []
   const check = (ok, message) => { if (!ok) problems.push(message) }
@@ -211,6 +231,7 @@ export function validateScope(scope) {
   if (scope.kind !== undefined) check(DOC_KINDS.includes(scope.kind), 'invalid kind')
   if (scope.state !== undefined) check(scope.state === 'draft' || scope.state === 'published', 'invalid state')
   if (scope.parent !== undefined) check(typeof scope.parent === 'string' && SLUG.test(scope.parent), 'invalid parent')
+  if (scope.theme !== undefined) check(typeof scope.theme === 'string' && DOC_THEME.test(scope.theme), 'invalid theme')
   if (scope.destination !== undefined) {
     const destination = scope.destination
     check(object(destination) && Object.keys(destination).every((key) => key === 'where' || key === 'target') && DOC_WHERES.includes(destination.where)
@@ -268,6 +289,16 @@ export function validateScope(scope) {
   const ids = new Set()
   for (const thread of Array.isArray(scope.threads) ? scope.threads : []) {
     if (!object(thread)) { problems.push('invalid comment'); continue }
+    for (const item of [thread, ...(Array.isArray(thread.messages) ? thread.messages.filter(object) : [])]) {
+      if (item.by !== undefined) {
+        const by = normalizePerson(item.by)
+        if (by) item.by = by; else delete item.by
+      }
+    }
+    if (thread.handling !== undefined) {
+      const handling = normalizeHandling(thread.handling)
+      if (handling) thread.handling = handling; else delete thread.handling
+    }
     check(typeof thread.id === 'string' && THREAD_ID.test(thread.id) && !ids.has(thread.id), 'invalid or duplicate comment id')
     ids.add(thread.id)
     check(typeof thread.anchor?.section === 'string' && SECTION_ID.test(thread.anchor.section) && !!normalizeAnchor(thread.anchor) && (thread.anchor?.rect === undefined || kindOf(scope) === 'visual'), 'invalid comment anchor')

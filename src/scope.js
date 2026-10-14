@@ -286,6 +286,7 @@ export function createScopeRoutes({ store, webRoot, sendJson, sendText, readJson
               }
               const args = ['post', '--to', targetPane, '--from', `scope:${slug}`, '--kind', kind, '--topic', options.topic ?? `scope-${slug}`, '--wake', wake]
               if (ref) args.push('--ref', ref)
+              if (options.ownerWords) args.push('--owner-words')
               args.push('--text', text)
               const bulletin = await new Promise((resolve, reject) => {
                 const command = scopePostCommand(lanePost || 'lane-post', args, scope?.host)
@@ -322,7 +323,7 @@ export function createScopeRoutes({ store, webRoot, sendJson, sendText, readJson
           // A note already held is not re-marked on every pause tick, so the page isn't redrawn each time.
           const ids = comments.filter((note) => status !== 'held' || note.delivery !== 'held').map((note) => note.id)
           emitNotes(store.markScopeNotes(ids, status, status === 'delivered' ? new Date().toISOString() : null, status === 'delivered' ? extra ?? {} : {}))
-        }, { ...(quiet ? { kind: 'info', wake: 'never' } : {}), ref: `scope:${slug}:notes:${comments.map(note => note.id).join(',')}`, topic: `scope-${slug}-n${comments[0].id}` })
+        }, { ownerWords: true, ...(quiet ? { kind: 'info', wake: 'never' } : {}), ref: `scope:${slug}:notes:${comments.map(note => note.id).join(',')}`, topic: `scope-${slug}-n${comments[0].id}` })
         for (const note of laneNotes) {
           let line = `[scoping ${slug}] Note from Alex's voice call (not a comment): ${compact(note.text)}`
           if (line.length > 700) line = `${cutUnits(line, 699)}…`
@@ -702,10 +703,7 @@ export function createScopeRoutes({ store, webRoot, sendJson, sendText, readJson
       const error = new Error('lanes rewrite the doc through the CLI')
       error.code = 'HUMAN_ONLY'; error.status = 403; throw error
     }
-    if (verb === 'edit' && human) {
-      const error = new Error('lanes edit comments through the CLI')
-      error.code = 'HUMAN_ONLY'; error.status = 403; throw error
-    }
+    if (verb === 'edit' && human && !relay) requireHumanPath(req)
     if (verb === 'unsay' && human) return sendJson(res, 403, { error: 'lanes remove their own replies through the CLI' })
     if (verb === 'react' && human) return sendJson(res, 403, { error: 'lanes react through the CLI' })
     if (['reopen', 'delete'].includes(verb)) {
@@ -1280,6 +1278,14 @@ export function createScopeRoutes({ store, webRoot, sendJson, sendText, readJson
       if (verb === 'react') {
         if (body.emoji === null) delete thread.reaction
         else thread.reaction = { emoji: '👀', by: 'agent', at }
+      } else if (verb === 'edit' && human) {
+        if (thread.kind !== 'comment' || thread.messages[0]?.from !== 'alex') bad('only your own comments can be edited', 403)
+        if (thread.status !== 'open') bad('reopen the comment before editing', 409)
+        if (body.section !== undefined || body.quote !== undefined || body.options !== undefined) bad('only comment text can be edited', 403)
+        thread.messages[0].text = text(body.text)
+        thread.messages[0].edited_at = at
+        if (body.client_id) thread.messages[0].client_id = body.client_id
+        noteData = { event: 'reply', text: thread.messages[0].text }
       } else if (verb === 'edit') {
         if (thread.anchor.rect && (body.section !== undefined || body.quote !== undefined)) bad('a region comment stays on its slide')
         if (body.section === undefined && body.quote === undefined && body.options === undefined && body.text === undefined) bad('edit needs section and quote, options or text')

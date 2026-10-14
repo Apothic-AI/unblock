@@ -16,7 +16,7 @@ import { daemon, authToken, stateDir } from '../plugin/paths.js'
 import { SecretStore } from '../src/secrets.js'
 import { rectLabel, quoteSnippet } from '../src/scope-anchor.js'
 import { kindOf } from '../src/doc-kinds.js'
-import { SECTION_ID, slidesOf, docFromMarkdown, docToMarkdown, orderThreads, headingOf, THREAD_ID, APPS, validateScope, DOC_KINDS, DOC_WHERES, MODEL_ALIAS } from '../src/scope-doc.js'
+import { SECTION_ID, slidesOf, docFromMarkdown, docToMarkdown, orderThreads, headingOf, THREAD_ID, APPS, validateScope, DOC_KINDS, DOC_WHERES, MODEL_ALIAS, DOC_THEME } from '../src/scope-doc.js'
 import { connect as railsConnect, railsAccessToken, railsResource, railsSecretIn } from '../src/rails-auth.js'
 
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)))
@@ -513,7 +513,7 @@ async function scopeLinks(health, slug) {
 const SCOPE_USAGE = `unblock scope slides <slug> --from <dir|slides.json> [--keep "term" ...]
 unblock scope [list|url|notes|comments]           scoping docs and anchored comments
 unblock scope latency <slug> [--since <ISO|30m|2h|1d>] [--json]
-unblock scope new <slug> --pane <pane> [--app recruiter|closer|rails-admin] [--title "text"] [--kind scope|explainer|review|draft|writing|report|visual] [--parent <slug>] [--sources <dir>...] [--answerer on|off]
+unblock scope new <slug> --pane <pane> [--app recruiter|closer|rails-admin] [--title "text"] [--kind scope|explainer|review|draft|writing|report|visual] [--parent <slug>] [--theme <name>] [--sources <dir>...] [--answerer on|off]
 unblock scope ask <slug> --section <id> --quote "text" [--rec "text"] [--why "text"] [--option "text" ...] <question...>
 unblock scope ask <slug> --from <questions.json> [--keep "term" ...]
 unblock scope reply <slug> [T#] [--rec "text"] [--why "text"] [--option "text" ...] <text...>
@@ -546,7 +546,7 @@ const cropPath = (slug, id) => join(scopingRoot(), slug, 'assets', id)
 function scopeNew(args, usage, mode = 'scope') {
   const slugRe = /^[a-z0-9][a-z0-9-]{0,63}$/
   const paneRe = /^[A-Za-z0-9_-]+:[A-Za-z0-9_-]+$/
-  let pane, app, title, kind = mode === 'explain' ? 'explainer' : undefined, answerer, parent, answererModel
+  let pane, app, title, kind = mode === 'explain' ? 'explainer' : undefined, answerer, parent, answererModel, theme
   const sources = []
   const words = []
   for (let i = 1; i < args.length; i++) {
@@ -557,7 +557,7 @@ function scopeNew(args, usage, mode = 'scope') {
       if (!sources.length) fail(usage)
       continue
     }
-    if (word === '--pane' || word === '--app' || word === '--title' || word === '--kind' || word === '--answerer' || word === '--parent' || word === '--answerer-model') {
+    if (word === '--pane' || word === '--app' || word === '--title' || word === '--kind' || word === '--answerer' || word === '--parent' || word === '--answerer-model' || word === '--theme') {
       const value = args[++i]
       if (value === undefined) fail(usage)
       if (word === '--pane') pane = value
@@ -566,6 +566,7 @@ function scopeNew(args, usage, mode = 'scope') {
       else if (word === '--answerer') answerer = value
       else if (word === '--parent') parent = value
       else if (word === '--answerer-model') answererModel = value
+      else if (word === '--theme') theme = value
       else title = value
     } else if (word.startsWith('-')) fail(usage)
     else words.push(word)
@@ -574,6 +575,7 @@ function scopeNew(args, usage, mode = 'scope') {
   if (words.length !== 1 || !slugRe.test(slug ?? '') || !paneRe.test(pane ?? '') || (app !== undefined && !APPS.includes(app))) fail(usage)
   if (kind !== undefined && !DOC_KINDS.includes(kind)) fail(usage)
   if (parent !== undefined && !slugRe.test(parent)) fail(usage)
+  if (theme !== undefined && !DOC_THEME.test(theme)) fail(usage)
   if (answerer !== undefined && answerer !== 'on' && answerer !== 'off') fail(usage)
   if (answererModel !== undefined && (!MODEL_ALIAS.test(answererModel) || (kind ?? 'scope') === 'scope')) fail(usage)
   const resolved = sources.map((dir) => {
@@ -590,7 +592,7 @@ function scopeNew(args, usage, mode = 'scope') {
   const path = join(dir, 'scope.json')
   if (existsSync(path)) fail(`${path} exists`, 4)
   const heading = title ?? slug
-  const scope = { version: 2, slug, title: heading, pane, ...(app ? { app } : {}), ...(kind ? { kind } : {}), ...(parent ? { parent } : {}), ...(answerer ? { answerer } : {}), ...(answererModel ? { answerer_model: answererModel } : {}), ...(resolved.length ? { sources: resolved } : {}), revision: 1, updated_at: new Date().toISOString(), doc: { sections: [{ id: 'title', heading, body_md: '' }] }, threads: [] }
+  const scope = { version: 2, slug, title: heading, pane, ...(app ? { app } : {}), ...(kind ? { kind } : {}), ...(parent ? { parent } : {}), ...(theme ? { theme } : {}), ...(answerer ? { answerer } : {}), ...(answererModel ? { answerer_model: answererModel } : {}), ...(resolved.length ? { sources: resolved } : {}), revision: 1, updated_at: new Date().toISOString(), doc: { sections: [{ id: 'title', heading, body_md: '' }] }, threads: [] }
   const problems = validateScope(scope)
   if (problems.length) fail(problems.join('\n'), 1)
   mkdirSync(dir, { recursive: true })

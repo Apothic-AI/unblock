@@ -25,7 +25,16 @@ export interface DocSection {
 
 export interface CommentImage { id: string; width: number; height: number }
 
+export interface Person {
+  kind: 'person' | 'agent'
+  id: string
+  name: string
+  /** HTTPS only; invalid URLs are dropped. */
+  photo_url?: string
+}
+
 export interface ThreadMessage {
+  by?: Person
   images?: CommentImage[]
   from: 'agent' | 'alex'
   text: string
@@ -61,6 +70,9 @@ export interface Resolution {
 }
 
 export interface Thread {
+  by?: Person
+  /** Unknown states are dropped; notes are truncated to 120 characters. */
+  handling?: { state: 'workflow' | 'teammate' | 'research'; note?: string; at: string; by?: Person }
   /** 'T1', 'T2', … never reused. */
   id: string
   anchor: Anchor
@@ -152,12 +164,16 @@ export interface ScopeV2 {
   destination?: { where: DocWhere; target?: string }
   /** Optional parent slug. Validated only; set by `scope new --parent`. */
   parent?: string
+  /** Optional per-document design system, DOC_THEME (e.g. 'shelf'). Set by `scope new --theme`; the page sets it as data-doc-theme. */
+  theme?: string
   approval?: ScopeApproval
   threads: Thread[]
 }
 
 /** /^[a-z][a-z0-9-]{0,39}$/ */
 export const SECTION_ID: RegExp
+/** /^[a-z][a-z0-9-]{0,31}$/ */
+export const DOC_THEME: RegExp
 /** /^T\d{1,4}$/ */
 export const THREAD_ID: RegExp
 export const APPS: ['recruiter', 'closer', 'rails-admin']
@@ -185,6 +201,8 @@ export function migrateV1(v1: unknown, now?: string): ScopeV2
 
 /** Validate a v2 object (from disk or a lane's `doc` payload). Returns a list of problems ([] = valid). */
 export function validateScope(scope: unknown): string[]
+export function normalizePerson(value: unknown): Person | undefined
+export function normalizeHandling(value: unknown): Thread['handling'] | undefined
 
 /** Plain text of a section as anchors see it: heading, newline, plainText(body_md) with figures reduced to their caption. */
 export function sectionPlain(section: DocSection): string
