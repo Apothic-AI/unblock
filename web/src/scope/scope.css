@@ -714,6 +714,7 @@ body:not(.embed) .side { padding-top: 0; }
 body:not(.embed) > .talk { bottom: max(16px, calc(env(safe-area-inset-bottom) + 16px)); }
 
 .scope-close { position: absolute; inset-block-start: 8px; inset-inline-end: 12px; min-width: 44px; min-height: 44px; background: var(--raised); color: var(--ink); border: 0; border-radius: 50%; cursor: pointer; }
+.sheet:has(.composer) { padding-block-start: 56px; }
 /* Doc theme "shelf": a scope doc with `theme: "shelf"` (page.ts sets data-doc-theme) wears Shelf's system.
    Source: shelf packages/theme/src/brand.ts (neutrals, danger, fonts), tokens.ts (mono accent; amber and
    matcha text shades for question and done), packages/design/styles/base.css (radii 8/12/20/28, shadows,

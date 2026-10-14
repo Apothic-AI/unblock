@@ -1009,13 +1009,16 @@ function renderComposer() {
     else if (composing?.general || !scope?.doc.sections.some(s => s.id === composing?.section)) cards.prepend(node)
     else if (composing) insertAtAnchor(node, composing)
   }
+  if (phone() && !sheet.querySelector('.scope-close')) {
+    const close = document.createElement('button'); close.type = 'button'; close.className = 'scope-close'; close.dataset.action = 'close'; close.setAttribute('aria-label', 'Close comments'); close.textContent = '×'; sheet.prepend(close)
+  }
   const message = !composing?.general && !scope?.doc.sections.some(s => s.id === composing?.section) ? 'This section was removed. Your draft is kept.' : changedComposer === composing ? 'This section changed since you started.' : ''
   let note = node.querySelector<HTMLElement>('.composer-note')
   if (message) { if (!note) { note = document.createElement('p'); note.className = 'composer-note'; node.querySelector('textarea')!.before(note) }; note.textContent = message } else note?.remove()
   if (phone()) document.body.classList.add('sheet-open')
 }
 async function action(name: string, target: HTMLElement, imageSnapshot?: string[]) {
-  if (name === 'close') { closeSheet(); return }
+  if (name === 'close') { if (composing) { composing = null; closeSheet(); renderCards() } else closeSheet(); return }
   if (name === 'general-comment') { openGeneralComment(); return }
   if (name === 'comment') { openSelectionComment(); return }
   const id = target.closest<HTMLElement>('[data-t]')?.dataset.t, t = scope?.threads.find(t => t.id === id), key = target.closest('.composer') ? target.closest('.composer')?.querySelector<HTMLElement>('[data-draft]')?.dataset.draft || 'composer' : id!
