@@ -749,6 +749,10 @@ export function createScopeRoutes({ store, webRoot, sendJson, sendText, readJson
     writes.set(slug, pending)
     try {
       const result = await pending
+      if (!result || typeof result !== 'object' || Array.isArray(result) || !Object.keys(result).length) {
+        console.error(`unblock: scope response unconfirmed slug=${slug} verb=${verb || action || '-'} reason=missing_result`)
+        return sendJson(res, 503, { error: 'Could not confirm. Your words are kept; retry.', code: 'WRITE_UNCONFIRMED' })
+      }
       if (wait.length) await waitNotes(slug, wait)
       if (approvalWrite && !result.duplicate && approved(result.approval)) res.once('finish', () => { void moveApprovedTab(slug, result.revision, false, approvedBy(result.approval)) })
       return sendJson(res, result.error === 'unslop' ? 422 : ((newThread || batchThread) && !result.duplicate) ? 201 : 200, result)

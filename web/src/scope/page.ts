@@ -226,9 +226,23 @@ function markSeen(id: string) { const t = scope?.threads.find(t => t.id === id);
 function syncThreadClasses() {
   for (const t of ordered()) for (const mark of marks(t.id)) { mark.classList.toggle('unread', unread(t)) }
 }
+const retryIds = new Map<string, { payload: string; id: string }>()
+function retryId(path: string, body: unknown) {
+  const payload = JSON.stringify(body), old = retryIds.get(path)
+  if (old?.payload === payload) return old.id
+  const id = clientId(); retryIds.set(path, { payload, id }); return id
+}
+async function responseJson<T>(res: Response): Promise<T> {
+  const text = await res.text()
+  let result: any
+  try { result = JSON.parse(text) } catch { throw new Error('Could not confirm. Your words are kept; retry.') }
+  if (!result || typeof result !== 'object' || Array.isArray(result) || !Object.keys(result).length) throw new Error('Could not confirm. Your words are kept; retry.')
+  if (!res.ok) throw new Error(typeof result.error === 'string' ? result.error : `HTTP ${res.status}`)
+  return result
+}
 async function api<T>(path: string, body?: unknown): Promise<T> {
   const res = await fetch(path, { method: body ? 'POST' : 'GET', headers: body ? { 'Content-Type': 'application/json' } : {}, body: body ? JSON.stringify(body) : undefined, cache: 'no-store' })
-  const result = await res.json(); if (!res.ok) throw new Error(result.error || `HTTP ${res.status}`); return result
+  return responseJson<T>(res)
 }
 const endpoint = `${apiBase}/${encodeURIComponent(slug)}`
 const telemetry = slug ? startTelemetry({ url: `${endpoint}/telemetry`, mode: boot.events === false ? 'poll' : 'events' }) : null
@@ -264,8 +278,9 @@ async function submitApproval() {
   if ($<HTMLButtonElement>('[data-action="approve-submit"]', approveDialog).disabled) return
   approving = true; updateApproveDialog(); $('.error', approveDialog).textContent = ''
   try {
-    const client_id = clientId(), mode = approveMode(), comment = $<HTMLTextAreaElement>('textarea', approveDialog).value
+    const mode = approveMode(), comment = $<HTMLTextAreaElement>('textarea', approveDialog).value, client_id = retryId(`${endpoint}/approve`, { mode, comment })
     const result = await api<{ approval?: ScopeApproval; queued?: boolean; client_id?: string }>(`${endpoint}/approve`, { mode, comment, client_id })
+    retryIds.delete(`${endpoint}/approve`)
     approveDialog.close()
     if (queuedApproval?.timer) clearTimeout(queuedApproval.timer)
     queuedApproval = null
@@ -324,9 +339,10 @@ function clientId() {
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`
 }
 async function write(route: string, body: Record<string, unknown>, id?: string) {
-  const client_id = typeof body.client_id === 'string' && body.client_id ? body.client_id : clientId()
+  const client_id = typeof body.client_id === 'string' && body.client_id ? body.client_id : retryId(`${endpoint}/threads${route}`, body)
   const res = await fetch(`${endpoint}/threads${route}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...body, client_id }) })
-  const result = await res.json(); if (!res.ok) throw new Error(result.error || `HTTP ${res.status}`)
+  const result = await responseJson<any>(res)
+  retryIds.delete(`${endpoint}/threads${route}`)
   if (res.status === 202 || result.queued === true) {
     const key = id || client_id
     const { client_id: _, ...postedBody } = body
@@ -559,7 +575,7 @@ function baseCardHtml(t: Thread) {
   ${isOpen && t.kind === 'question' && t.options?.length ? `<details class="other-options only-on"><summary>Other options (${t.options.length - 1})</summary>${t.options.slice(1).map((option, i) => `<div class="other-option"><span>${esc(option)}</span><button class="btn small" data-action="option" data-option="${i + 1}">Pick this</button></div>`).join('')}</details>` : ''}
   ${isOpen && t.why ? `<details class="why only-on"><summary>Why</summary><p>${esc(t.why)}</p></details>` : ''}
   ${ownComment ? '' : messages}
-  ${!isOpen ? `<div class="settled">${t.status === 'parked' ? '<b>Parked.</b> Not answered; the lane leaves it for later.' : 'Resolved'}</div><button class="btn" data-action="reopen">Reopen</button>` : ''}${sending.has(t.id) ? (sending.get(t.id)!.failed ? '' : sendingLine(sending.get(t.id)!)) + (sending.get(t.id)!.failed ? body : '') : ownComment ? '' : body}${!compose && errors.has(t.id) ? `<p class="error" role="alert">${esc(errors.get(t.id))}</p>` : ''}`
+  ${!isOpen ? `<div class="settled">${t.status === 'parked' ? '<b>Parked.</b> Not answered; the lane leaves it for later.' : 'Resolved'}</div><button class="btn" data-action="reopen">Reopen</button>` : ''}${sending.has(t.id) ? (sending.get(t.id)!.failed ? '' : sendingLine(sending.get(t.id)!)) + (sending.get(t.id)!.failed ? body : '') : ownComment ? '' : body}${!compose && !body && errors.has(t.id) ? `<p class="error" role="alert">${esc(errors.get(t.id))}</p>` : ''}`
 }
 function cardHtml(t: Thread) {
   const card = document.createElement('div'); card.innerHTML = baseCardHtml(t)

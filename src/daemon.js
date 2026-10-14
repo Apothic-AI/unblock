@@ -45,7 +45,8 @@ function stateDir() {
 }
 
 function sendJson(res, status, value) {
-  const body = JSON.stringify(value)
+  let body = JSON.stringify(value)
+  if (body === undefined) { status = 503; body = JSON.stringify({ error: 'Could not confirm. Your words are kept; retry.', code: 'WRITE_UNCONFIRMED' }) }
   res.writeHead(status, {
     'Content-Type': 'application/json; charset=utf-8',
     'Content-Length': Buffer.byteLength(body),
@@ -1288,7 +1289,9 @@ async function answerAsk(ticket, values, reply, fieldContext, fieldBounce, revis
   const server = http.createServer((req, res) => {
     const route = req.url === '/mcp' ? handleMcp : handle
     route(req, res).catch((error) => {
-      if (res.headersSent) return res.end()
+      const path = String(req.url || '').split('?')[0].replace(/[\r\n]/g, '').slice(0, 200)
+      console.error(`unblock: request failed method=${req.method} path=${path} headers_sent=${res.headersSent} code=${error?.code || 'unknown'} status=${error?.status || 500}`)
+      if (res.headersSent) return res.destroy()
       if (error && error.code === 'SECRET_NOT_REFERENCED') {
       return sendJson(res, 400, { error: error.message, code: error.code })
     }
