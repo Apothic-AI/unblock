@@ -232,16 +232,21 @@ function retryId(path: string, body: unknown) {
   if (old?.payload === payload) return old.id
   const id = clientId(); retryIds.set(path, { payload, id }); return id
 }
+const unconfirmedMessage = 'Could not confirm. Your words are kept; retry.'
+async function scopeFetch(path: string, init: RequestInit) {
+  try { return await fetch(path, init) } catch { throw new Error(unconfirmedMessage) }
+}
 async function responseJson<T>(res: Response): Promise<T> {
-  const text = await res.text()
+  let text: string
+  try { text = await res.text() } catch { throw new Error(unconfirmedMessage) }
   let result: any
-  try { result = JSON.parse(text) } catch { throw new Error('Could not confirm. Your words are kept; retry.') }
-  if (!result || typeof result !== 'object' || Array.isArray(result) || !Object.keys(result).length) throw new Error('Could not confirm. Your words are kept; retry.')
+  try { result = JSON.parse(text) } catch { throw new Error(unconfirmedMessage) }
+  if (!result || typeof result !== 'object' || Array.isArray(result) || !Object.keys(result).length) throw new Error(unconfirmedMessage)
   if (!res.ok) throw new Error(typeof result.error === 'string' ? result.error : `HTTP ${res.status}`)
   return result
 }
 async function api<T>(path: string, body?: unknown): Promise<T> {
-  const res = await fetch(path, { method: body ? 'POST' : 'GET', headers: body ? { 'Content-Type': 'application/json' } : {}, body: body ? JSON.stringify(body) : undefined, cache: 'no-store' })
+  const res = await scopeFetch(path, { method: body ? 'POST' : 'GET', headers: body ? { 'Content-Type': 'application/json' } : {}, body: body ? JSON.stringify(body) : undefined, cache: 'no-store' })
   return responseJson<T>(res)
 }
 const endpoint = `${apiBase}/${encodeURIComponent(slug)}`
@@ -340,7 +345,7 @@ function clientId() {
 }
 async function write(route: string, body: Record<string, unknown>, id?: string) {
   const client_id = typeof body.client_id === 'string' && body.client_id ? body.client_id : retryId(`${endpoint}/threads${route}`, body)
-  const res = await fetch(`${endpoint}/threads${route}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...body, client_id }) })
+  const res = await scopeFetch(`${endpoint}/threads${route}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...body, client_id }) })
   const result = await responseJson<any>(res)
   retryIds.delete(`${endpoint}/threads${route}`)
   if (res.status === 202 || result.queued === true) {
@@ -575,7 +580,7 @@ function baseCardHtml(t: Thread) {
   ${isOpen && t.kind === 'question' && t.options?.length ? `<details class="other-options only-on"><summary>Other options (${t.options.length - 1})</summary>${t.options.slice(1).map((option, i) => `<div class="other-option"><span>${esc(option)}</span><button class="btn small" data-action="option" data-option="${i + 1}">Pick this</button></div>`).join('')}</details>` : ''}
   ${isOpen && t.why ? `<details class="why only-on"><summary>Why</summary><p>${esc(t.why)}</p></details>` : ''}
   ${ownComment ? '' : messages}
-  ${!isOpen ? `<div class="settled">${t.status === 'parked' ? '<b>Parked.</b> Not answered; the lane leaves it for later.' : 'Resolved'}</div><button class="btn" data-action="reopen">Reopen</button>` : ''}${sending.has(t.id) ? (sending.get(t.id)!.failed ? '' : sendingLine(sending.get(t.id)!)) + (sending.get(t.id)!.failed ? body : '') : ownComment ? '' : body}${!compose && !body && errors.has(t.id) ? `<p class="error" role="alert">${esc(errors.get(t.id))}</p>` : ''}`
+  ${!isOpen ? `<div class="settled">${t.status === 'parked' ? '<b>Parked.</b> Not answered; the lane leaves it for later.' : 'Resolved'}</div><button class="btn" data-action="reopen">Reopen</button>` : ''}${sending.has(t.id) ? (sending.get(t.id)!.failed ? '' : sendingLine(sending.get(t.id)!)) + (sending.get(t.id)!.failed ? body : '') : ownComment ? '' : body}${!compose && !body.includes('class="error"') && errors.has(t.id) ? `<p class="error" role="alert">${esc(errors.get(t.id))}</p>` : ''}`
 }
 function cardHtml(t: Thread) {
   const card = document.createElement('div'); card.innerHTML = baseCardHtml(t)
