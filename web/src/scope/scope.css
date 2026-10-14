@@ -127,11 +127,11 @@ mark.hl { color: inherit; background: var(--hl-q); border-radius: 3px; padding: 
 mark.hl.comment { background: var(--hl-c); }
 mark.hl.on { background: var(--hl-q-on); box-shadow: 0 1.5px 0 var(--ask); }
 mark.hl.comment.on { background: var(--hl-c-on); box-shadow: 0 1.5px 0 var(--ac); }
-mark.hl.resolved:not(.unread), mark.hl.resolved.on:not(.unread) { background: none; box-shadow: none; cursor: text; }
-body.show-resolved mark.hl.resolved, mark.hl.resolved.unread { background: var(--hl-r); cursor: pointer; }
-body.show-resolved mark.hl.resolved.on, mark.hl.resolved.unread.on { box-shadow: 0 1.5px 0 var(--tx2); }
+mark.hl.resolved, mark.hl.resolved.on { background: none; box-shadow: none; cursor: text; }
+body.show-resolved mark.hl.resolved { background: var(--hl-r); cursor: pointer; }
+body.show-resolved mark.hl.resolved.on { box-shadow: 0 1.5px 0 var(--tx2); }
 mark.hl.unread { position: relative; }
-mark.hl.unread::after { content: ""; position: absolute; right: -3px; top: -3px; width: 6px; height: 6px; border-radius: 50%; background: var(--ac); }
+mark.hl.unread:not(.resolved)::after { content: ""; position: absolute; right: -3px; top: -3px; width: 6px; height: 6px; border-radius: 50%; background: var(--ac); }
 .unread-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ac); flex: none; }
 .new-reply { font-size: 12px; font-weight: 600; color: var(--ac); flex: none; }
 /* explainer: questions in the margin, answers that read like the doc */
@@ -705,7 +705,7 @@ mark.hl.region::after { content: attr(data-t); position: absolute; left: -1.5px;
 @keyframes card-flash { 0%, 30% { box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 45%, transparent); } }
 .region-thumb img { height: 64px; width: auto; }
 mark.hl.region.resolved { display: none; }
-body.show-resolved mark.hl.region.resolved, mark.hl.region.resolved.unread { display: block; }
+body.show-resolved mark.hl.region.resolved { display: block; }
 .thumbs .region-thumb { width: auto; height: 64px; aspect-ratio: auto; }
 .thumbs .region-thumb img { width: auto; height: 64px; object-fit: contain; }
 @media (max-width: 899px) { body.visual .layout { grid-template-columns: minmax(0, 1fr); } }

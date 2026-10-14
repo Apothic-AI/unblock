@@ -38,7 +38,7 @@ let scope: ScopeV2 | null = null, focused: string | null = null, initialized = f
 let postedClient: string | null = null
 let detachedPin: { id: string; top: number } | null = null
 function focusedCard() { return [...cards.querySelectorAll<HTMLElement>('.card[data-t]'), ...detached.querySelectorAll<HTMLElement>('.card[data-t]')].find(n => n.dataset.t === focused) }
-let showResolved = storage.get('scope:showResolved') === 'true'
+let showResolved = false
 const commentsBar = embed ? commentsHeader($('.side-head'), { open: 0, index: 0, total: 0, showResolved, onPrev: () => step(-1), onNext: () => step(1), onShowResolved: checked => { showResolved = checked; storage.set('scope:showResolved', String(checked)); if (!checked && scope?.threads.find(t => t.id === focused)?.status !== 'open') focused = null; renderCards() } }) : null
 let chrome: ReturnType<typeof mountPage> | null = null, chromeSignature = ''
 const APP_NAME = { recruiter: 'Recruiter', closer: 'Closer', 'rails-admin': 'Rails' }
@@ -54,7 +54,7 @@ function chromeSpec() {
   const flags = docFlags()
   const actions: PageAction[] = []
   if (boot.comment !== 'host') actions.push({ id: 'comment', label: flags.margin, kind: 'screen-only', placement: 'title', run: () => { openGeneralComment(); return { ok: true, speech: flags.margin === 'Ask' ? 'Ask about the whole doc.' : 'Comment on the whole doc.' } } })
-  if (flags.resolve && ordered().some(thread => thread.status !== 'open')) actions.push({ id: 'resolved-comments', label: showResolved ? 'Hide resolved comments' : 'Show resolved comments', kind: 'screen-only', placement: 'menu', run: () => { showResolved = !showResolved; storage.set('scope:showResolved', String(showResolved)); if (!showResolved && scope?.threads.find(thread => thread.id === focused)?.status !== 'open') focused = null; renderCards(); syncChrome(); return { ok: true, speech: showResolved ? 'Resolved comments are shown.' : 'Resolved comments are hidden.' } } })
+  if (flags.resolve && ordered().some(thread => thread.status !== 'open')) actions.push({ id: 'resolved-comments', label: `${ordered().filter(thread => thread.status !== 'open').length} resolved${showResolved ? ' · hide' : ''}`, kind: 'screen-only', placement: 'menu', run: () => { showResolved = !showResolved; storage.set('scope:showResolved', String(showResolved)); if (!showResolved && scope?.threads.find(thread => thread.id === focused)?.status !== 'open') focused = null; renderCards(); syncChrome(); return { ok: true, speech: showResolved ? 'Resolved comments are shown.' : 'Resolved comments are hidden.' } } })
   if (flags.approve && (boot.approve !== 'host' || !hostDrawsApprove()) && !isApproved() && !(queuedApproval && !queuedApproval.failed)) actions.push({ id: 'approve-scope', label: 'Approve scope', kind: 'move', placement: 'title', run: () => { openApproveDialog(); return { ok: true, speech: 'Approve scope is open.' } } })
   if (boot.voice !== false || typeof boot.voiceUrl === 'string' && /^https?:\/\//i.test(boot.voiceUrl)) actions.push({ id: 'voice', label: embed ? 'Talk' : 'Talk it through by voice', kind: 'screen-only', placement: embed ? 'title' : 'menu', run: () => { if (boot.voice !== false) $('#talk').click(); else window.open(boot.voiceUrl, '_blank', 'noopener'); return { ok: true, speech: 'Voice is open.' } } })
   return { title: [...((oneScreen(scope) ? (scope!.doc.sections.find(s => s.id === 'title')?.heading || scope!.title).replace(/\s+\{#[^}]+\}\s*$/, '') : scope!.title) || scope!.doc.sections.find(s => s.id === 'title')?.heading || slug)].slice(0, 80).join(''), description: flags.margin === 'Ask' ? `Explainer · revision ${scope!.revision}` : `${projectLabel()} · revision ${scope!.revision}`, back: boot.back && typeof boot.back.label === 'string' && typeof boot.back.route === 'string' ? boot.back : { label: projectLabel(), route: '/s/' }, actions, primary: actions.some(a => a.id === 'approve-scope') ? 'approve-scope' : undefined, chat: { onToggle: () => { if (composing?.general) { composing = null; closeSheet(); renderCards() } else openGeneralComment() } }, initialize: false as const, forwardKeys: true }
@@ -725,12 +725,13 @@ function insertAtAnchor(node: HTMLElement, anchor: Anchor) {
   else { const range = rangeFromAnchor(anchor)?.range; const after = [...cards.children].find(n => { const mark = marks((n as HTMLElement).dataset.t!)[0]; return range && mark && range.comparePoint(mark.firstChild || mark, 0) > 0 }); cards.insertBefore(node, after || null) }
 }
 function renderCards() {
+  if (focused && !showResolved && scope?.threads.find(t => t.id === focused)?.status !== 'open') { focused = null; closeSheet() }
   syncFigureFocus()
   if (focused && document.visibilityState === 'visible' && document.querySelector(`.card.on[data-t="${focused}"]`)) markSeen(focused)
   syncThreadClasses()
   const byId = new Map(scope?.threads.map(t => [t.id, t]))
   const docOrder = scope ? oneScreen(scope) ? orderThreads(scope) : orderThreads({ ...scope, threads: scope.threads.map(t => ({ ...t, status: 'open' })) }) : []
-  const visible = docOrder.map(t => byId.get(t.id)!).filter(t => !docFlags().resolve || t.status === 'open' || showResolved || t.id === focused || sending.has(t.id))
+  const visible = docOrder.map(t => byId.get(t.id)!).filter(t => !docFlags().resolve || t.status === 'open' || showResolved)
   const focusedNode = focusedCard()
   // While a new comment is being written the composer leads; a detached focused card goes to the Detached list as on main.
   const holds = (id: string) => !phone() && !composing && id === focused
@@ -755,11 +756,11 @@ function renderCards() {
     const at = !range ? 0 : mainNodes.findIndex(n => { const mark = marks((n as HTMLElement).dataset.t!)[0]; return mark && range.comparePoint(mark.firstChild!, 0) > 0 })
     mainNodes.splice(at < 0 ? mainNodes.length : at, 0, composer)
   }
-  if (kept?.parentElement === cards && !mainNodes.includes(kept) && kept.dataset.t && (getDraft(kept.dataset.t).trim() || getImages(kept.dataset.t).length || uploading.get(kept.dataset.t))) mainNodes.push(kept)
+  if (kept?.parentElement === cards && !mainNodes.includes(kept) && kept.dataset.t && visible.some(t => t.id === kept.dataset.t) && (getDraft(kept.dataset.t).trim() || getImages(kept.dataset.t).length || uploading.get(kept.dataset.t))) mainNodes.push(kept)
   replaceAround(cards, mainNodes, kept?.parentElement === cards ? kept : composer)
   const gone = visible.filter(t => missing.has(t.id) && !holds(t.id))
   const detachedNodes: Node[] = gone.length ? [document.createTextNode('Detached · the text it was on changed'), ...gone.map(makeCard)] : []
-  if (kept?.parentElement === detached && kept.dataset.t && !detachedNodes.includes(kept) && (getDraft(kept.dataset.t).trim() || getImages(kept.dataset.t).length || uploading.get(kept.dataset.t))) detachedNodes.push(kept)
+  if (kept?.parentElement === detached && kept.dataset.t && !detachedNodes.includes(kept) && visible.some(t => t.id === kept.dataset.t) && (getDraft(kept.dataset.t).trim() || getImages(kept.dataset.t).length || uploading.get(kept.dataset.t))) detachedNodes.push(kept)
   replaceAround(detached, detachedNodes, kept)
   for (const item of sending.values()) if ((!item.id && item.anchor) || item.failed) {
     if (item.id && scope?.threads.some(t => t.id === item.id)) {
@@ -887,6 +888,7 @@ function threadOnScreen(id: string) {
 function focus(id: string | null, scroll = false, openSheet = true) {
   if (id) document.dispatchEvent(new CustomEvent('scope-thread-focus', { detail: id }))
   const thread = scope?.threads.find(t => t.id === id)
+  if (thread && thread.status !== 'open' && !showResolved) return
   if (thread && oneScreen(scope)) showChapter(thread.anchor.section)
   if (id !== focused) readingReply = thread && unread(thread) ? `${thread.id}:${thread.messages.at(-1)!.at}` : null
   postedClient = null; focused = id
@@ -966,7 +968,7 @@ document.addEventListener('keydown', e => {
 function menuThread(target: EventTarget | null) {
   if (!(target instanceof Element)) return null
   const node = target.closest<HTMLElement>('.card[data-t],mark.hl[data-t]'), thread = scope?.threads.find(t => t.id === node?.dataset.t)
-  return thread && (!docFlags().resolve || thread.status === 'open' || showResolved || node?.classList.contains('card')) ? thread : null
+  return thread && (!docFlags().resolve || thread.status === 'open' || showResolved) ? thread : null
 }
 document.addEventListener('contextmenu', e => {
   if (e.defaultPrevented || phone() || !zoom.hidden) return
@@ -1000,7 +1002,7 @@ document.addEventListener('touchmove', e => { const touch = e.touches[0]; if (to
 function focusHash() {
   const id = location.hash.match(/^#thread=(T\d+)$/)?.[1], thread = scope?.threads.find(t => t.id === id)
   if (!thread) { if (oneScreen(scope)) showChapter(decodeURIComponent(location.hash.slice(1))); return }
-  if (thread.status !== 'open') { showResolved = true; storage.set('scope:showResolved', 'true') }
+  if (thread.status !== 'open' && !showResolved) return
   focus(thread.id, true)
 }
 window.addEventListener('hashchange', focusHash)
@@ -1378,7 +1380,7 @@ document.addEventListener('click', e => {
   const button = target.closest<HTMLElement>('[data-action]')
   if (button) { void action(button.dataset.action!, button); return }
   const go = target.closest<HTMLElement>('[data-go]'); if (go) { step(Number(go.dataset.go)); return }
-  const mark = target.closest<HTMLElement>('mark[data-t]'); if (mark && (!mark.classList.contains('resolved') || !docFlags().resolve || showResolved || mark.classList.contains('unread'))) { focus(mark.dataset.t!); if (mark.classList.contains('region')) { const card = focusedCard(); if (card) { card.classList.remove('flash'); void card.offsetWidth; card.classList.add('flash') } }; seekMoment(mark.dataset.t!); return }
+  const mark = target.closest<HTMLElement>('mark[data-t]'); if (mark && (!mark.classList.contains('resolved') || !docFlags().resolve || showResolved)) { focus(mark.dataset.t!); if (mark.classList.contains('region')) { const card = focusedCard(); if (card) { card.classList.remove('flash'); void card.offsetWidth; card.classList.add('flash') } }; seekMoment(mark.dataset.t!); return }
   const node = target.closest<HTMLElement>('.card[data-t]'); if (node && !target.closest('textarea,button,a,summary,details')) { if (node.dataset.t === focused && node.classList.contains('on')) return; focus(node.dataset.t!, true); seekMoment(node.dataset.t!); if (!phone()) focusBox(node.dataset.t!) }
 })
 document.addEventListener('input', e => { const input = e.target as HTMLTextAreaElement; if (!input.dataset.draft) return; setDraft(input.dataset.draft, input.value); const save = input.closest('.card')?.querySelector<HTMLButtonElement>('[data-action="save-comment"]'); if (save) { const thread = scope?.threads.find(t => `${t.id}:comment` === input.dataset.draft); save.hidden = input.value === thread?.messages[0]?.text }; const reply = input.closest('.card')?.querySelector<HTMLButtonElement>('[data-action="reply"]'); if (reply) { reply.hidden = !phone() && !input.value.trim() && !getImages(input.dataset.draft).length; reply.disabled = pending.has(input.dataset.draft) || !!uploading.get(input.dataset.draft) || !input.value.trim() && !getImages(input.dataset.draft).length }; layout() })
@@ -1424,7 +1426,7 @@ function renderFeed() {
   feed.querySelector<HTMLButtonElement>('.voice-feed-close')!.onclick = () => { feedClosed = true; renderFeed() }
   feed.querySelectorAll<HTMLButtonElement>('.voice-feed-row[data-thread]').forEach(row => row.onclick = () => {
     const id = row.dataset.thread!, thread = scope?.threads.find(t => t.id === id)
-    if (thread && thread.status !== 'open') { showResolved = true; storage.set('scope:showResolved', 'true'); renderCards() }
+    if (thread && thread.status !== 'open' && !showResolved) return
     focus(id, true)
   })
   positionFeed()
@@ -1436,6 +1438,7 @@ let lastPayload = ''
 function accept(payload: { scope: ScopeV2; notes?: any[]; items?: LiveItem[]; estimates?: unknown[]; failed?: Refused[]; error?: string }): boolean { const changed = (payload.items || []).map(mergeItem).some(Boolean); if (changed) patchLive(); if (payload.estimates && setBuildEstimates(payload.estimates)) lastPayload = ''; if (!payload.scope) { lastPayload = ''; doc.textContent = payload.error || 'The lane has not published a doc yet.'; return false }; const fingerprint = payloadKey(payload); if (fingerprint === lastPayload) return false; lastPayload = fingerprint
   const firstPayload = !scope
   scope = payload.scope
+  if (focused && !showResolved && scope.threads.find(t => t.id === focused)?.status !== 'open') { focused = null; closeSheet() }
   // The doc's own design system, apart from data-theme (light/dark); a doc without one drops the last doc's.
   if (scope.theme) document.documentElement.dataset.docTheme = scope.theme
   else delete document.documentElement.dataset.docTheme
