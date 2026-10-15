@@ -393,7 +393,7 @@ export class Store {
     const project = (body.project ?? '').trim().toLowerCase()
     const duplicate = this.#db.prepare("SELECT ticket, title, project, purpose, target FROM asks WHERE status = 'open'")
       .all()
-      .find((ask) => (body.target && ask.target === body.target && (ask.purpose ?? 'blocker') === (body.purpose ?? 'blocker')) ||
+      .find((ask) => (body.target && ask.target && ask.target.split(',').some((part) => body.target.split(',').includes(part))) ||
         ((ask.project ?? '').trim().toLowerCase() === project && normalizeTitle(ask.title) === normalizeTitle(body.title)))
     if (duplicate) {
       const err = new Error(`already open as ${duplicate.ticket}; use unblock_update to revise it`)

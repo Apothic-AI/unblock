@@ -1,5 +1,6 @@
 import { LEVELS, levelOf } from './queue-model.js'
 const TARGET = /^[a-z0-9][a-z0-9._-]{0,39}:[a-z0-9][a-z0-9._:/-]{0,79}$/
+const validTarget = (value) => typeof value === 'string' && value.split(',').length <= 5 && value.split(',').every((part) => TARGET.test(part))
 
 export { LEVELS }
 
@@ -469,7 +470,7 @@ export function validateAsk(raw) {
     typeof ref !== 'string' || !(/^(https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/(pull|issues)\/\d+|scope:[a-z0-9][a-z0-9-]{0,63}#T\d{1,4}|probe:[a-z0-9][a-z0-9_-]{0,40})$/.test(ref))))) {
     fail('closes_on', 'at most 5 https://github.com/<owner>/<repo>/pull/<number>, issues/<number>, or scope:<slug>#T<number> references, or probe:<name> from probes.json')
   }
-  if (raw.target !== undefined && (typeof raw.target !== 'string' || !TARGET.test(raw.target))) fail('target', 'service:thing, lowercase, at most 80 characters, e.g. railway:token')
+  if (raw.target !== undefined && !validTarget(raw.target)) fail('target', 'service:thing, lowercase, at most 80 characters, e.g. railway:token; a bundle lists up to 5, comma-separated')
   check(() => normalizeTtl(raw.ttl_seconds))
   // Retain the full normalizer as the final authority, including cross-field rules.
   const normalized = check(() => validateAskFirst(raw))
@@ -626,7 +627,7 @@ function validateAskFirst(raw) {
     typeof ref !== 'string' || !(/^(https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/(pull|issues)\/\d+|scope:[a-z0-9][a-z0-9-]{0,63}#T\d{1,4}|probe:[a-z0-9][a-z0-9_-]{0,40})$/.test(ref))))) {
     throw new ValidationError('must contain at most 5 PR, issue or scope comment references, or probe:<name>', 'closes_on')
   }
-  if (raw.target !== undefined && (typeof raw.target !== 'string' || !TARGET.test(raw.target))) throw new ValidationError('must look like service:thing, e.g. railway:token', 'target')
+  if (raw.target !== undefined && !validTarget(raw.target)) throw new ValidationError('must look like service:thing, e.g. railway:token, or up to 5 comma-separated', 'target')
   return {
     closes_on: closes_on?.length ? closes_on : undefined,
     target: raw.target,

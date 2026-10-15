@@ -10,6 +10,10 @@ await main(async () => {
     check(second.status === 409 && second.body.ticket === first.body.ticket, `same target under "rails" returns the first ticket (${second.status} ${second.body?.ticket})`)
     const cased = await daemon.api('/api/asks', { ask: ask('railway prod token!', { project: 'rails' }), origin: origin(box, 'rails') })
     check(cased.status === 409 && cased.body.ticket === first.body.ticket, 'same title under a different-case project returns the first ticket')
+    const bundle = await daemon.api('/api/asks', { ask: ask('Bland number, ChatGPT seat', { project: 'connectors-store', purpose: 'decision', target: 'bland:number,chatgpt:test-seat' }), origin: origin(box, 'connectors-store') })
+    check(bundle.status === 201, `bundle ask filed (${bundle.status})`)
+    const covered = await daemon.api('/api/asks', { ask: ask('Approve an owned Bland test number', { project: 'store', target: 'bland:number' }), origin: origin(box, 'other') })
+    check(covered.status === 409 && covered.body.ticket === bundle.body.ticket, `an ask the bundle covers returns the bundle ticket (${covered.status} ${covered.body?.ticket})`)
   } finally {
     await daemon.stop()
   }
@@ -19,4 +23,10 @@ await main(async () => {
   const b = JSON.parse((await held(box, ['hold'], telnyx.replace('"Telnyx number",', '"Buy a Telnyx number",'))).stdout).id
   check(a === b, `the same Telnyx hold twice gives one held id (${a}, ${b})`)
   check(JSON.parse((await held(box, ['list'])).stdout).length === 1, 'held list has one row')
+  const bundled = JSON.stringify({ owner: 'connectors-store', keys: ['connectors-store'], kind: 'decision', title: 'Bland number, ChatGPT seat, Granola key',
+    target: 'bland:number,chatgpt:test-seat,granola:key' })
+  const c = JSON.parse((await held(box, ['hold'], bundled)).stdout).id
+  const d = JSON.parse((await held(box, ['hold'], JSON.stringify({ owner: 'connectors-store', keys: ['connectors-store'], kind: 'spend',
+    title: 'Approve an owned Bland test number', target: 'bland:number' }))).stdout).id
+  check(c === d, `a hold the bundle covers returns the bundle id (${c}, ${d})`)
 })
