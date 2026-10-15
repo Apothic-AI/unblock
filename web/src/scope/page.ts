@@ -398,7 +398,7 @@ function seenBy(t: Thread) {
 function queuePlaces() {
   const places = new Map<string, string>()
   if (!scope || docFlags().answerer || (scope as ScopeV2 & { answerer?: string }).answerer === 'on') return places
-  const waiting = scope.threads.filter(t => { const last = latestAlex(t); return t.status === 'open' && last && !t.messages.some(m => m.from !== 'alex' && m.at > last.at) }).sort((a, b) => latestAlex(a)!.at.localeCompare(latestAlex(b)!.at) || Number(a.id.slice(1)) - Number(b.id.slice(1)))
+  const waiting = scope.threads.filter(t => { const last = latestAlex(t); return t.status === 'open' && last && !t.messages.slice(t.messages.indexOf(last) + 1).some(m => m.from !== 'alex') }).sort((a, b) => latestAlex(a)!.at.localeCompare(latestAlex(b)!.at) || Number(a.id.slice(1)) - Number(b.id.slice(1)))
   if (waiting.length < 2) return places
   let previous: Thread | undefined
   for (const t of waiting) {
@@ -427,7 +427,7 @@ function patchLiveCard(card: HTMLElement, t: Thread, places: Map<string, string>
   const item = currentItem(t)
   const pending = card.querySelector<HTMLElement>('.answer.pending')
   if (item) pending?.remove()
-  const replied = t.messages.some(m => m.from !== 'alex' && m.at > last!.at && !(m as AnswerMessage).pending)
+  const replied = t.messages.slice(t.messages.indexOf(last!) + 1).some(m => m.from !== 'alex' && !(m as AnswerMessage).pending)
   const show = item && !replied && ['thinking', 'streaming', 'done'].includes(item.status)
   let live = card.querySelector<HTMLElement>('.live:not(.pending)')
   if (!show) live?.remove()

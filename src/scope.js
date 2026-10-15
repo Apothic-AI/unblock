@@ -1327,6 +1327,9 @@ export function createScopeRoutes({ store, webRoot, sendJson, sendText, readJson
       } else if (verb === 'reply') {
         if (body.options !== undefined && (human || body.recommendation === undefined)) bad('options require an agent recommendation')
         const message = { from: human ? 'alex' : 'agent', text: text(body.text), at, ...via, ...client, ...pictures }
+        const since = thread.messages.findLastIndex((m) => m.from !== message.from)
+        const repeat = !images.length && body.recommendation === undefined && thread.messages.slice(since + 1).find((m) => !m.pending && !m.images?.length && m.text === message.text)
+        if (repeat) return { thread, duplicate: true }
         if (!human && body.recommendation !== undefined) {
           if (thread.kind !== 'question' && thread.status !== 'open') bad('only open comments have recommendations')
           thread.recommendation = text(body.recommendation, 600)
