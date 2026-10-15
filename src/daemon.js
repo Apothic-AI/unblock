@@ -4,7 +4,7 @@ import http from 'node:http'
 import { execFile } from 'node:child_process'
 import { guardedAnswerNotice, recheckNotice, originFinishedNotice, staleLaneNotice, delivered } from './pane-notice.js'
 import { laneForAsk, laneClosed } from './lane-state.js'
-import { emergencyReason, focusGate } from './focus-gate.js'
+import { alexView, emergencyReason, focusGate } from './focus-gate.js'
 import { createScopeRoutes } from './scope.js'
 import { ASSET_ID } from './scope-assets.js'
 import { randomBytes, timingSafeEqual } from 'node:crypto'
@@ -13,7 +13,7 @@ import { homedir } from 'node:os'
 import { dirname, extname, join, resolve, sep, isAbsolute } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 
-import { applyConfig, daemonRoot } from './config.js'
+import { applyConfig, configDir, daemonRoot } from './config.js'
 import { createLivedocApprovals } from './scope-approvals.js'
 import { APPROVAL_PURPOSES, normalizeOrigin, optionalScrub, validateAsk, validateUpdate, ValidationError } from './schema.js'
 import { SecretStore } from './secrets.js'
@@ -360,6 +360,9 @@ export async function startDaemon({ port, secretStore: injectedSecretStore, issu
   const replyMs = interval('UNBLOCK_RECHECK_REPLY_MS', 600000)
   const linkCheckMs = interval('UNBLOCK_LINK_CHECK_MS', 300000)
   const linkReads = new Map()
+  const probeReads = new Map()
+  const probeMs = interval('UNBLOCK_PROBE_MS', 3600000)
+  const unconfirmedMs = interval('UNBLOCK_UNCONFIRMED_MS', 72 * 60 * 60 * 1000)
   const routeFailures = new Map()
   const refuseWorktreeOrigins = process.env.UNBLOCK_REFUSE_WORKTREE_ORIGINS === 'true'
   if (port === undefined) port = Number(process.env.UNBLOCK_PORT || 4488)
@@ -574,6 +577,11 @@ function scrubFieldBounce(raw) {
     return ask.origin?.detected === true || ['question', 'permission'].includes(ask.purpose)
   }
 
+  function laneClosedFor(ask) {
+    const lane = laneForAsk(ask)
+    return Boolean(lane && laneClosed(lane))
+  }
+
   async function deadReference(ask) {
     const configuredDays = Number(process.env.UNBLOCK_STALE_LANE_DAYS)
     const staleDays = Number.isFinite(configuredDays) && configuredDays > 0 ? configuredDays : 7
@@ -581,8 +589,28 @@ function scrubFieldBounce(raw) {
       const lane = laneForAsk(ask)
       if (lane && laneClosed(lane)) return 'stale_lane_closed'
     }
+    for (const ref of ask.closes_on || []) {
+      if (!ref.startsWith('probe:')) continue
+      const name = ref.slice('probe:'.length)
+      const previous = probeReads.get(name)
+      if (previous && Date.now() - previous.at < probeMs) {
+        if (previous.passed) return 'probe_passed'
+        continue
+      }
+      const entry = { at: Date.now(), passed: false }
+      probeReads.set(name, entry)
+      let argv
+      try { argv = JSON.parse(readFileSync(join(configDir(), 'probes.json'), 'utf8'))[name] } catch {}
+      if (!Array.isArray(argv) || !argv.length || argv.some((part) => typeof part !== 'string')) {
+        console.error(`unblock: probe ${name} is not in probes.json for ${ask.ticket}`)
+        continue
+      }
+      entry.passed = await new Promise((resolve) => execFile(argv[0], argv.slice(1), { timeout: 20000 }, (error) => resolve(!error)))
+      if (entry.passed) return 'probe_passed'
+    }
     if (ask.purpose === 'permission' && ask.permission?.path && isAbsolute(ask.permission.path) && !existsSync(ask.permission.path)) return 'path_gone'
     for (const ref of ask.closes_on || []) {
+      if (ref.startsWith('probe:')) continue
       if (ref.startsWith('scope:')) {
         const [, slug, id] = ref.match(/^scope:([^#]+)#(T\d+)$/)
         try {
@@ -858,24 +886,34 @@ async function answerAsk(ticket, values, reply, fieldContext, fieldBounce, revis
       }
       const valid = validateAsk(body.ask)
       const emergency = emergencyReason(body.emergency)
+      if (emergency && valid.level !== 'P0') {
+        return sendJson(res, 400, { error: 'an emergency ask must be level P0 (production down or broken, or a security incident)', code: 'EMERGENCY_NEEDS_P0' })
+      }
       if (emergency && (valid.tried?.length ?? 0) < 8) valid.tried = [...(valid.tried ?? []), `Emergency: ${emergency}`.slice(0, 400)]
       const gate = await focusGate(body, valid, origin)
       if (gate.held) {
         return sendJson(res, 202, { held: gate.held, filed: false, owner: gate.owner, title: valid.title,
           note: "Held: this work is not in today's focus. It reaches Alex when he makes it focus; keep working." })
       }
-      const ask = store.create(valid, await verifiedOrigin(origin))
+      const created = store.create(valid, await verifiedOrigin(origin))
+      if (gate.aside) {
+        const ask = store.setAside(created.ticket, gate.aside)
+        emitQueue()
+        return sendJson(res, 202, { ...ask, filed: true, note: 'Filed set aside: the focus gate could not run, so this ask stays out of Alex\'s view until it is kept or its work is focus.' })
+      }
       emitQueue()
-      return sendJson(res, 201, ask)
+      return sendJson(res, 201, created)
     }
 
     if (req.method === 'GET' && pathname === '/api/asks') {
+      if (url.searchParams.get('view') === 'alex') return sendJson(res, 200, await alexView(store))
       const profile = url.searchParams.get('profile') || '*'
       const asks = store.list({
         profile,
         project: url.searchParams.get('project') || undefined,
         status: parseStatuses(url.searchParams.get('status')),
         includeClosed: isTrue(url.searchParams.get('includeClosed')),
+        includeAside: isTrue(url.searchParams.get('includeAside')),
       })
       return sendJson(res, 200, { asks, hidden: store.countHidden(profile) })
     }
@@ -1338,7 +1376,7 @@ async function answerAsk(ticket, values, reply, fieldContext, fieldBounce, revis
   keepalive.unref()
   async function sweep() {
     let changed = false
-    const lifecycle = store.list({ profile: '*', status: ['open', 'answered'] })
+    const lifecycle = store.list({ profile: '*', status: ['open', 'answered'], includeAside: true })
     const starts = processStarts(lifecycle.filter((ask) => hasVerifiedPid(ask.origin)).map((ask) => ask.origin.pid))
     for (const candidate of lifecycle) {
       try {
@@ -1355,6 +1393,9 @@ async function answerAsk(ticket, values, reply, fieldContext, fieldBounce, revis
               changed = true; emitAsk(closed, closed.status)
               if (lane) await staleLaneNotice(closed, lane)
             }
+          } else if (!ask.set_aside_at && laneClosedFor(ask)) {
+            const aside = store.setAside(ask.ticket, `lane_closed ${laneForAsk(ask)}`)
+            changed = true; emitAsk(aside, aside.status)
           } else if (!ask.set_aside_at && ask.rechecked_at != null && Date.now() - ask.rechecked_at >= replyMs && (ask.kept_at == null || (ask.kept_at < ask.rechecked_at && Date.now() - ask.kept_at >= recheckAfterMs))) {
             const aside = store.setAside(ask.ticket, 'no_reply')
             changed = true; emitAsk(aside, aside.status)
@@ -1397,6 +1438,12 @@ async function answerAsk(ticket, values, reply, fieldContext, fieldBounce, revis
         }
         const updated = store.get(ticket)
         if (updated.set_aside_at !== ask.set_aside_at || updated.rechecked_at !== ask.rechecked_at) { changed = true; emitAsk(updated, updated.status) }
+      })
+    }
+    for (const ticket of store.unconfirmedCandidates(unconfirmedMs)) {
+      await withTicket(ticket, () => {
+        const ask = store.setAside(ticket, 'unconfirmed')
+        if (ask) { changed = true; emitAsk(ask, ask.status) }
       })
     }
     for (const ticket of store.weeklyCandidates(weeklyAfterMs)) {

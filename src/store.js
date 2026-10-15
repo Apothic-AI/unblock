@@ -252,7 +252,7 @@ export class Store {
     this.#addColumn('asks', 'recheck_attempted_at', 'INTEGER')
     this.#addColumn('asks', 'weekly_at', 'INTEGER')
     for (const name of ['kept_at', 'set_aside_at', 'routed_at']) this.#addColumn('asks', name, 'INTEGER')
-    for (const name of ['closes_on_json', 'close_reason', 'set_aside_reason']) this.#addColumn('asks', name, 'TEXT')
+    for (const name of ['closes_on_json', 'close_reason', 'set_aside_reason', 'target']) this.#addColumn('asks', name, 'TEXT')
     this.#addColumn('asks', 'reping_unavailable_at', 'INTEGER')
   }
 
@@ -390,9 +390,11 @@ export class Store {
   create(body, origin) {
     const key = agentKey(origin)
 
-    const duplicate = this.#db.prepare("SELECT ticket, title FROM asks WHERE status = 'open' AND project IS ?")
-      .all(body.project ?? null)
-      .find((ask) => normalizeTitle(ask.title) === normalizeTitle(body.title))
+    const project = (body.project ?? '').trim().toLowerCase()
+    const duplicate = this.#db.prepare("SELECT ticket, title, project, purpose, target FROM asks WHERE status = 'open'")
+      .all()
+      .find((ask) => (body.target && ask.target === body.target && (ask.purpose ?? 'blocker') === (body.purpose ?? 'blocker')) ||
+        ((ask.project ?? '').trim().toLowerCase() === project && normalizeTitle(ask.title) === normalizeTitle(body.title)))
     if (duplicate) {
       const err = new Error(`already open as ${duplicate.ticket}; use unblock_update to revise it`)
       err.code = 'ALREADY_OPEN'
@@ -452,7 +454,7 @@ export class Store {
         JSON.stringify(body.blocks ?? null), body.permission ? JSON.stringify(body.permission) : null,
       )
 
-    this.#db.prepare('UPDATE asks SET closes_on_json = ? WHERE id = ?').run(body.closes_on ? JSON.stringify(body.closes_on) : null, id)
+    this.#db.prepare('UPDATE asks SET closes_on_json = ?, target = ? WHERE id = ?').run(body.closes_on ? JSON.stringify(body.closes_on) : null, body.target ?? null, id)
     return this.get(id)
   }
 
@@ -585,6 +587,7 @@ export class Store {
       recheck_attempted_at: row.recheck_attempted_at ?? undefined,
       weekly_at: row.weekly_at ?? undefined,
       closes_on: row.closes_on_json ? JSON.parse(row.closes_on_json) : undefined,
+      target: row.target ?? undefined,
       close_reason: row.close_reason ?? undefined,
       kept_at: row.kept_at ?? undefined,
       set_aside_at: row.set_aside_at ?? undefined,
@@ -610,7 +613,7 @@ export class Store {
    * The queue view. `profile` filters using herdr's own visibility rule;
    * pass '*' for everything. Gating asks always sort first.
    */
-  list({ profile = '*', status = ['open', 'answered', 'bounced'], agentKey: key, includeClosed = false, project } = {}) {
+  list({ profile = '*', status = ['open', 'answered', 'bounced'], agentKey: key, includeClosed = false, includeAside = false, project } = {}) {
     const statuses = includeClosed ? null : status
     const rows = this.#db.prepare('SELECT * FROM asks ORDER BY created_at ASC').all()
     const asks = rows
@@ -618,6 +621,7 @@ export class Store {
       .filter((a) => (statuses ? statuses.includes(a.status) : true))
       .filter((a) => (key ? a.origin && agentKey(a.origin) === key : true))
       .filter((a) => (project ? a.project === project : true))
+      .filter((a) => includeAside || a.status !== 'open' || (a.set_aside_at == null && (a.weekly_at == null || (a.kept_at ?? 0) > a.weekly_at)))
       .filter((a) => matchesProfile(a.origin, profile))
 
     return asks.sort((a, b) => {
@@ -928,6 +932,13 @@ export class Store {
     return this.get(ticket)
   }
 
+  unconfirmedCandidates(afterMs) {
+    const cutoff = nowMs() - afterMs
+    return this.#db.prepare(`SELECT ticket FROM asks WHERE status = 'open' AND set_aside_at IS NULL
+      AND created_at <= ? AND closes_on_json IS NULL AND (kept_at IS NULL OR kept_at <= ?)`)
+      .all(cutoff, cutoff).map(({ ticket }) => ticket)
+  }
+
   setAside(ticket, reason) {
     this.#db.prepare("UPDATE asks SET set_aside_at = ?, set_aside_reason = ? WHERE ticket = ? AND status = 'open' AND set_aside_at IS NULL").run(nowMs(), reason, ticket)
     return this.get(ticket)
@@ -1019,7 +1030,7 @@ export class Store {
    * of only after they submit.
    */
   openForAgent(origin) {
-    return this.list({ profile: '*', agentKey: agentKey(origin), status: ['open'] })
+    return this.list({ profile: '*', agentKey: agentKey(origin), status: ['open'], includeAside: true })
   }
 
   /**

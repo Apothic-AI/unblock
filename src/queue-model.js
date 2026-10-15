@@ -65,7 +65,7 @@ export function unansweredFields(ask) {
   return (ask.fields || []).filter((field) => !(field.name in answered))
 }
 
-export const LEVELS = ['P1', 'P2', 'P3', 'P4']
+export const LEVELS = ['P0', 'P1', 'P2', 'P3', 'P4']
 
 /** Legacy asks inherit urgency from their purpose and dependent work. */
 export function levelOf(ask) {

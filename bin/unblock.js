@@ -137,9 +137,10 @@ function flags(args, allowed) {
 function count(n) { return `${n} ${n === 1 ? 'question' : 'questions'}` }
 
 async function list(args) {
-  const { rest, opts } = flags(args, { '--all': false, '--aside': false, '--project': true })
-  if (rest.length) fail('usage: unblock list [--all] [--project P] [--json]')
-  const { asks } = await request(`/api/asks?profile=*&includeClosed=${opts['--all'] ? 'true' : 'false'}`)
+  const { rest, opts } = flags(args, { '--all': false, '--aside': false, '--alex': false, '--project': true })
+  if (rest.length) fail('usage: unblock list [--alex] [--all] [--aside] [--project P] [--json]')
+  if (opts['--alex']) return alexList()
+  const { asks } = await request(`/api/asks?profile=*&includeClosed=${opts['--all'] ? 'true' : 'false'}&includeAside=${opts['--aside'] ? 'true' : 'false'}`)
   const cutoff = Date.now() - 7 * 86400000
   const shown = asks.filter((ask) =>
     (ask.status === 'open' || (opts['--all'] && ['answered', 'cancelled'].includes(ask.status) &&
@@ -172,6 +173,19 @@ async function list(args) {
       const link = stable(health, ask.ticket)
       if (link) console.log(`             ${link}`)
     }
+  }
+}
+async function alexList() {
+  const view = await request('/api/asks?view=alex')
+  const health = await request('/api/health')
+  const asks = view.asks.map((ask) => ({ ...safe(ask), link: stable(health, ask.ticket) }))
+  if (json) return output({ ...view, asks })
+  const { held = 0, aside = 0, not_focus: notFocus = 0, lane_closed: closed = 0 } = view.hidden ?? {}
+  console.log(`${asks.length} for today; ${held} held, ${aside} set aside, ${notFocus} outside focus, ${closed} from closed lanes`)
+  if (view.error) console.log(view.error)
+  for (const ask of asks) {
+    console.log(`  ${ask.ticket}  ${ask.title}`)
+    if (ask.link) console.log(`             ${ask.link}`)
   }
 }
 const reasons = {
@@ -368,9 +382,13 @@ async function file(args) {
   if (detectedPid === undefined) delete payload.origin.pid
   if (opts['--origin']) payload.origin = { ...payload.origin, lane_name: opts['--origin'] }
   // Outside today's focus the daemon holds the ask; a stated emergency passes (src/focus-gate.js).
-  if (opts['--emergency']) payload.emergency = opts['--emergency']
+  if (opts['--emergency']) {
+    payload.emergency = opts['--emergency']
+    if (payload.ask && typeof payload.ask === 'object') payload.ask.level = 'P0'
+  }
   const ask = await request('/api/asks', payload)
   if (ask.held) return output(ask, `held ${ask.held}: ${ask.note}`)
+  if (ask.set_aside_at) return output({ ...safe(ask) }, `${ask.ticket} set aside: ${ask.note ?? ask.set_aside_reason}`)
   const link = stable(await request('/api/health'), ask.ticket)
   output({ ...safe(ask), link }, [ask.ticket, link].filter(Boolean).join('\n'))
 }
@@ -1250,7 +1268,7 @@ unblock pay <ticket> [--payment-method <id>]
 unblock keep <ticket>                            keep an ask in today’s queue
 unblock aside <ticket> <reason...>               hold an open ask out of today’s queue (keep brings it back)
 unblock close <ticket> <reason...>               withdraw an open ask with a one-line reason
-unblock file [path|-] [--origin lane] [--emergency why]  file an ask from JSON; held outside today's focus (same shape as the MCP tool)
+unblock file [path|-] [--origin lane] [--emergency why]  file an ask from JSON; held outside today's focus (same shape as the MCP tool); --emergency files it as P0
 unblock update <ticket> [path|-]                 revise an open ask from a JSON patch
 unblock link <ticket> [--share]                  the stable queue link; --share mints a 15-minute link
 unblock peek <ticket>                            what they have typed so far

@@ -12,15 +12,27 @@ function laneExists(lane, root) {
   try { return statSync(join(root, lane)).isDirectory() } catch { return false }
 }
 
+export function lanePanes(info) {
+  const history = Array.isArray(info?.panes) ? info.panes : []
+  return [info?.owner_pane, info?.pane, info?.herdr?.pane_id, ...history].filter(value => typeof value === 'string' && value.trim())
+}
+
+function laneFromPath(path, root) {
+  if (typeof path !== 'string' || !path.startsWith(`${root}/`)) return null
+  const name = path.slice(root.length + 1).split('/')[0]
+  return laneExists(name, root) ? name : null
+}
+
 export function laneForAsk(ask, root = lanesRoot()) {
   if (laneExists(ask.origin?.lane_name, root)) return ask.origin.lane_name
+  const fromPath = laneFromPath(ask.origin?.cwd, root) || laneFromPath(ask.origin?.repo, root)
+  if (fromPath) return fromPath
   const pane = ask.origin?.pane_id
   if (!pane) return null
   try {
     for (const lane of readdirSync(root)) {
       if (!laneExists(lane, root)) continue
-      const info = metadata(lane, root)
-      if ([info.owner_pane, info.pane, info.herdr?.pane_id].some(value => typeof value === 'string' && value.toLowerCase() === pane.toLowerCase())) return lane
+      if (lanePanes(metadata(lane, root)).some(value => value.toLowerCase() === pane.toLowerCase())) return lane
     }
   } catch {}
   return null

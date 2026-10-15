@@ -140,7 +140,8 @@ const askProperties = {
   // it. One short name per workstream, reused across asks. Defaults to
   // $UNBLOCK_PROJECT when unset.
   project: { type: 'string', maxLength: 64 },
-  level: { type: 'string', enum: ['P1', 'P2', 'P3', 'P4'], description:
+  level: { type: 'string', enum: ['P0', 'P1', 'P2', 'P3', 'P4'], description:
+    'P0 an emergency: production down or broken, or a security incident (set by emergency);\n' +
     'P1 a real person or money is waiting, or something is down;\n' +
     'P2 holds up a lane or a build;\n' +
     'P3 a scope round, or something shipped to review;\n' +
@@ -202,7 +203,8 @@ const askProperties = {
       required: ['url'],
     },
   },
-  closes_on: { type: 'array', maxItems: 5, items: { type: 'string' }, description: 'Close this ask by itself when any of these PRs or issues merges or closes, or when this scope comment is resolved.' },
+  closes_on: { type: 'array', maxItems: 5, items: { type: 'string' }, description: 'Close this ask by itself when any of these PRs or issues merges or closes, when this scope comment is resolved, or when probe:<name> from ~/.config/unblock/probes.json exits 0. An ask with none of these is set aside as unconfirmed after 72 hours unless you keep it.' },
+  target: { type: 'string', description: 'What this ask is for, as service:thing (railway:token, telnyx:number). A second ask with the same purpose and target returns the open one.' },
   ttl_seconds: { type: 'number', exclusiveMinimum: 0 },
 }
 
@@ -223,8 +225,8 @@ const TOOLS = [
   {
     name: 'unblock_check',
     description:
-      'Collect answered requests previously filed by this agent, and see what is part way filled in on the ones still open.',
-    inputSchema: { type: 'object', properties: {} },
+      'Collect answered requests previously filed by this agent, and see what is part way filled in on the ones still open. scope "alex" instead returns the only asks that may be shown to Alex: open, not set aside, from live lanes and in today\'s focus.',
+    inputSchema: { type: 'object', properties: { scope: { type: 'string', enum: ['mine', 'alex'] } } },
   },
   {
     name: 'unblock_peek',
@@ -383,7 +385,7 @@ async function createAsk(kind, args, identity) {
   const { emergency, ...ask } = args
   return daemonFetch('/asks', {
     method: 'POST',
-    body: JSON.stringify({ ask: { project, ...ask, kind }, origin: origin(identity), emergency }),
+    body: JSON.stringify({ ask: { project, ...ask, kind, ...(emergency ? { level: 'P0' } : {}) }, origin: origin(identity), emergency }),
   })
 }
 
@@ -466,6 +468,13 @@ export class McpConnection {
         `Updated ${body.ask.ticket}; it now asks: ${names}. Their page picks it up on its own — do not re-park.`,
         { ask: body.ask },
       )
+    }
+
+    if (name === 'unblock_check' && args?.scope === 'alex') {
+      const view = await daemonFetch('/asks?view=alex')
+      const lines = view.asks.map((ask) => `- ${ask.ticket} "${ask.title}"`)
+      const counts = `${view.asks.length} for today; ${view.hidden?.held ?? 0} held, ${view.hidden?.aside ?? 0} set aside, ${view.hidden?.not_focus ?? 0} outside focus`
+      return textResult([counts, ...lines, ...(view.error ? [view.error] : [])].join('\n'), view)
     }
 
     if (name === 'unblock_check') {
