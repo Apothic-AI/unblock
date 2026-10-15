@@ -546,7 +546,7 @@ const SCOPE_USAGE = `unblock scope slides <slug> --from <dir|slides.json> [--kee
 unblock scope [list|url|notes|comments]           scoping docs and anchored comments
 unblock scope latency <slug> [--since <ISO|30m|2h|1d>] [--json]
 unblock scope new <slug> --pane <pane> [--app recruiter|closer|rails-admin] [--title "text"] [--kind scope|explainer|review|draft|writing|report|visual] [--parent <slug>] [--theme <name>] [--sources <dir>...] [--answerer on|off]
-unblock scope ask <slug> --section <id> --quote "text" [--rec "text"] [--why "text"] [--option "text" ...] <question...>
+unblock scope ask <slug> --section <id> --quote "text" [--rec "text"] [--why "text"] [--option "text" ...] [--piece <id> ...] <question...>
 unblock scope ask <slug> --from <questions.json> [--keep "term" ...]
 unblock scope reply <slug> [T#] [--rec "text"] [--why "text"] [--option "text" ...] <text...>
 unblock scope edit <slug> T# [--section id --quote "text"] [--option "text" ...] [--text "text"] [--json]
@@ -799,7 +799,7 @@ async function scope(args, mode = 'scope') {
   if (['ask', 'reply', 'resolve', 'reopen', 'unsay', 'edit'].includes(sub)) {
     if (words.at(-1) === '--json') { json = true; words.pop() }
     const opts = {}
-    const allowed = sub === 'ask' ? ['--section', '--quote', '--rec', '--why', '--option'] : sub === 'edit' ? ['--section', '--quote', '--option', '--text'] : sub === 'resolve' ? ['--decision', '--quote', '--revision'] : sub === 'reopen' ? ['--reason'] : sub === 'unsay' ? ['--text'] : ['--rec', '--why', '--option']
+    const allowed = sub === 'ask' ? ['--section', '--quote', '--rec', '--why', '--option', '--piece'] : sub === 'edit' ? ['--section', '--quote', '--option', '--text'] : sub === 'resolve' ? ['--decision', '--quote', '--revision'] : sub === 'reopen' ? ['--reason'] : sub === 'unsay' ? ['--text'] : ['--rec', '--why', '--option']
     for (let i = 0; i < words.length; i++) {
       if (words[i] !== '--keep') continue
       if (words[i + 1] === undefined) fail('--keep needs a value')
@@ -812,7 +812,7 @@ async function scope(args, mode = 'scope') {
     while (allowed.includes(words[0])) {
       const option = words.shift(), value = words.shift()
       if (value === undefined) fail(`${option} needs a value`)
-      if (option === '--option' || option === '--keep') (opts[option] ??= []).push(value)
+      if (option === '--option' || option === '--keep' || option === '--piece') (opts[option] ??= []).push(value)
       else opts[option] = value
     }
     if (!slug) fail(usage)
@@ -835,13 +835,13 @@ async function scope(args, mode = 'scope') {
         if (!Array.isArray(list)) fail('invalid questions')
         const questions = list.map((item, index) => {
           if (!item || typeof item !== 'object' || Array.isArray(item) || typeof item.section !== 'string' || !item.section.trim() || typeof item.quote !== 'string' || !item.quote.trim() || typeof item.question !== 'string' || !item.question.trim()) fail(`question ${index + 1}: missing section, quote or question`)
-          return { section: item.section, quote: item.quote, text: item.question, ...(item.rec !== undefined ? { recommendation: item.rec } : {}), ...(item.why !== undefined ? { why: item.why } : {}), ...(item.options !== undefined ? { options: item.options } : {}) }
+          return { section: item.section, quote: item.quote, text: item.question, ...(item.rec !== undefined ? { recommendation: item.rec } : {}), ...(item.why !== undefined ? { why: item.why } : {}), ...(item.options !== undefined ? { options: item.options } : {}), ...(item.pieces !== undefined ? { piece_ids: item.pieces } : {}) }
         })
         const data = await request(`${base}/threads/batch`, { questions, ...keep })
         return output(data, data.threads.map((thread) => `asked ${thread.id} on §${thread.anchor.section}`).join('\n'))
       }
       if (!opts['--section'] || !opts['--quote'] || !words.length) fail(usage)
-      const data = await request(`${base}/threads`, { section: opts['--section'], quote: opts['--quote'], text: words.join(' '), ...options, ...(opts['--rec'] !== undefined ? { recommendation: opts['--rec'] } : {}), ...(opts['--why'] !== undefined ? { why: opts['--why'] } : {}) })
+      const data = await request(`${base}/threads`, { section: opts['--section'], quote: opts['--quote'], text: words.join(' '), ...options, ...(opts['--rec'] !== undefined ? { recommendation: opts['--rec'] } : {}), ...(opts['--why'] !== undefined ? { why: opts['--why'] } : {}), ...(opts['--piece'] !== undefined ? { piece_ids: opts['--piece'] } : {}) })
       return output(data, `asked ${data.thread.id} on §${opts['--section']}`)
     }
     if (sub === 'resolve') {

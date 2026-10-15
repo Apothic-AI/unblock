@@ -6,7 +6,7 @@ import { isAbsolute, join } from 'node:path'
 import { promptPane, remoteScopeHost, scopePostCommand } from './pane-notice.js'
 import { appendApprovalIndex, approvedBy, moveTabToInflight } from './scope-approvals.js'
 import { docWarnings, lintDoc, lintText, mergeKeep, newFindings } from './scope-lint.js'
-import { buildDocError, buildFences } from './scope-build.js'
+import { buildDocError, buildFences, parseBuild } from './scope-build.js'
 import { ASSET_ID, readAsset, readAssetBody, assetLimit, storeAsset, serveAsset, docAssets } from './scope-assets.js'
 import { normalizeAnchor, rectLabel, quoteSnippet, locateAnchor, hasEmbedFence } from './scope-anchor.js'
 import { kindOf as registeredKindOf, kindSpec as registeredKindSpec } from './doc-kinds.js'
@@ -28,6 +28,41 @@ const approved = (approval) => ['approve', 'approve_to_try', 'approve_with_chang
 const eastern = (at) => `${new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }).format(new Date(at))} ET`
 const compact = (text) => text.replace(/\s+/g, ' ').trim()
 const delay = (value, fallback) => Number(value) > 0 ? Number(value) : fallback
+
+export function threadPieceIds(thread) {
+  if (Array.isArray(thread?.piece_ids)) return thread.piece_ids.filter((id) => typeof id === 'string')
+  return typeof thread?.piece_id === 'string' ? [thread.piece_id] : []
+}
+
+export function approvalPieces(scope) {
+  const pieces = (scope?.doc?.sections ?? []).flatMap((section) => buildFences(section?.body_md).flatMap((source) => parseBuild(source).pieces))
+  const asks = new Map()
+  for (const thread of scope?.threads ?? []) {
+    if (thread.status !== 'open') continue
+    for (const id of threadPieceIds(thread)) asks.set(id, [...(asks.get(id) ?? []), thread.id])
+  }
+  const waiting = new Map()
+  let moved = true
+  while (moved) {
+    moved = false
+    for (const piece of pieces) {
+      if (waiting.has(piece.id)) continue
+      const by = [...(asks.get(piece.id) ?? []), ...piece.deps.filter((dep) => waiting.has(dep))]
+      if (by.length) { waiting.set(piece.id, by); moved = true }
+    }
+  }
+  return { approved_pieces: pieces.filter((piece) => !waiting.has(piece.id)).map((piece) => piece.id), waiting_pieces: [...waiting].map(([id, blocked_by]) => ({ id, blocked_by })) }
+}
+
+export function buildLine(scope) {
+  const { approved_pieces, waiting_pieces } = approvalPieces(scope)
+  if (!approved_pieces.length && !waiting_pieces.length) {
+    const open = (scope?.threads ?? []).filter((thread) => thread.status === 'open').length
+    return open ? `Move to build what no open question touches; ${open} open comment${open === 1 ? ' stays' : 's stay'} open.` : 'Move to build.'
+  }
+  const build = approved_pieces.length ? `Build ${approved_pieces.join(', ')}.` : 'Nothing builds yet.'
+  return waiting_pieces.length ? `${build} Waits on a question: ${waiting_pieces.map((piece) => `${piece.id} (${piece.blocked_by.join(', ')})`).join(', ')}.` : build
+}
 
 export function createScopeRoutes({ store, webRoot, sendJson, sendText, readJson, requireHumanPath, proxyIdentity, relayIdentity = () => null }) {
   const root = process.env.UNBLOCK_SCOPING_DIR || join(homedir(), '.agent-rails', 'scoping')
@@ -348,7 +383,7 @@ export function createScopeRoutes({ store, webRoot, sendJson, sendText, readJson
             ? `[scoping ${slug}] NOT YET from ${alex} (r${revision})${text.length > 600 ? `.${noteLine}` : `: "${text}"`} Keep scoping; answer it on the doc.`
             : note.event === 'approve_to_try'
               ? `[scoping ${slug}] APPROVED TO TRY by ${alex} (r${revision}, ${atEt}).${noteLine} Build it on the project branch, start a try copy, label the PR try-build and don't queue it: it ships only when Alex presses Ship it.${closedLine}`
-            : `[scoping ${slug}] ${note.event === 'approve' ? 'APPROVED' : 'APPROVED WITH CHANGES'} by ${alex} (r${revision}, ${atEt}).${noteLine} ${note.event === 'approve' ? (late ? 'Recorded late by a PM relay; no action if you are already building.' : 'Move to build.') : 'Fold his note into the doc first (unblock scope patch), then move to build.'}${closedLine}`
+            : `[scoping ${slug}] ${note.event === 'approve' ? 'APPROVED' : 'APPROVED WITH CHANGES'} by ${alex} (r${revision}, ${atEt}).${noteLine} ${note.event === 'approve' ? (late ? 'Recorded late by a PM relay; no action if you are already building.' : buildLine(scope)) : `Fold his note into the doc first (unblock scope patch), then: ${buildLine(scope)}`}${closedLine}`
           const ref = note.event === 'not_yet' ? `scope:${slug}:not_yet:n${note.id}` : `scope:${slug}:${note.event}:r${approval.revision}`
           await send(`approval:${note.id}`, pane, line, (status, extra) => {
             if (status !== 'held' || note.delivery !== 'held') emitNotes(store.markScopeNotes([note.id], status, status === 'delivered' ? new Date().toISOString() : null, status === 'delivered' ? extra ?? {} : {}))
@@ -766,7 +801,11 @@ export function createScopeRoutes({ store, webRoot, sendJson, sendText, readJson
   }
 
   async function moveApprovedTab(slug, revision, onlyFromScoping = false, by = 'alex') {
-    await moveTabToInflight({ pane: readScope(slug)?.scope?.pane, revision, by, onlyFromScoping })
+    const scope = readScope(slug)?.scope
+    const { approved_pieces, waiting_pieces } = approvalPieces(scope)
+    if (waiting_pieces.length && !approved_pieces.length) return
+    const note = waiting_pieces.length ? `scope approved r${revision}; building ${approved_pieces.join(', ')}` : undefined
+    await moveTabToInflight({ pane: scope?.pane, revision, by, onlyFromScoping, note })
   }
 
   function approveScope(slug, scope, body, human) {
@@ -778,13 +817,6 @@ export function createScopeRoutes({ store, webRoot, sendJson, sendText, readJson
     const at = new Date().toISOString(), at_et = eastern(at), closed = []
     scope.approval = { mode: body.mode, by: 'alex', who: human.login, at, at_et, revision: scope.revision, comment,
       ...(body.via !== undefined ? { via: body.via } : {}), ...(body.client_id !== undefined ? { client_id: body.client_id } : {}) }
-    if (approved(scope.approval)) for (const thread of scope.threads) {
-      if (thread.status !== 'open') continue
-      delete thread.reaction
-      thread.status = 'resolved'
-      thread.resolution = { decision: thread.recommendation ?? 'Approved with the scope', alex_words: null, by: 'alex', how: 'approve', at, confirmed_at: at, revision: scope.revision }
-      closed.push(thread.id)
-    }
     scope.updated_at = at
     const problems = validateScope(scope)
     if (problems.length) bad(problems[0])
@@ -799,7 +831,7 @@ export function createScopeRoutes({ store, webRoot, sendJson, sendText, readJson
     if (entry) entry.meta = metadata(slug)
     emit(slug, 'scope', { ...readScope(slug), notes: scopeNotes(slug) })
     schedule(slug)
-    return { approval: scope.approval, closed, revision: scope.revision }
+    return { approval: scope.approval, closed, revision: scope.revision, ...(approved(scope.approval) ? approvalPieces(scope) : {}) }
   }
 
   function publishScope(slug, scope, body, human) {
@@ -1234,6 +1266,11 @@ export function createScopeRoutes({ store, webRoot, sendJson, sendText, readJson
       const thread = { id: nextThreadId(scope), anchor, author: 'agent', intent: 'ask', kind, status: 'open', messages: [{ from: 'agent', text: text(source.text), at, ...via, ...client, ...pictures }], created_at: at }
       if (source.recommendation !== undefined) thread.recommendation = text(source.recommendation, 600)
       if (source.why !== undefined) thread.why = text(source.why, 600)
+      if (source.piece_ids !== undefined || source.piece_id !== undefined) {
+        const named = source.piece_ids ?? [source.piece_id]
+        if (!Array.isArray(named) || !named.length || named.length > 20 || named.some((id) => typeof id !== 'string' || !/^[A-Za-z0-9][\w.-]{0,39}$/.test(id))) bad('invalid piece_ids')
+        thread.piece_ids = [...new Set(named)]
+      }
       if (source.options !== undefined) {
         if (!thread.recommendation) bad('options require an agent recommendation')
         setOptions(thread, source)

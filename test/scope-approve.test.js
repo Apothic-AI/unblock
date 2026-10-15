@@ -1,7 +1,7 @@
 // Owner: Opus (r17, approve scope). Implementers make it pass and never edit it.
 // Alex, 2026-09-29: "the scoping tool needs a submit scoping + final comment button because typically that's what
-// i'll do." Approving marks the scope approved (who, when in ET, the revision), closes open comments with the lane's
-// recommendation standing, sends the lane one line (APPROVED, his note verbatim, "Move to build."), logs it in the
+// i'll do." Approving marks the scope approved (who, when in ET, the revision), leaves open comments open (Alex,
+// 2026-10-15: pieces an open question touches wait), sends the lane one line (APPROVED, his note verbatim, what builds), logs it in the
 // scoping INDEX, and moves the lane's herdr tab from SCOPING to IN FLIGHT. "Approve with changes" asks the lane to fold
 // his note in first; "Not yet" only sends the note. Only Alex approves: the page, voice or the Admin relay, never a lane.
 import assert from 'node:assert/strict'
@@ -54,7 +54,7 @@ esac
 
 const ET = /^[A-Z][a-z]{2} \d{1,2}, \d{1,2}:\d{2} [AP]M ET$/
 
-test('Alex approves with a note: approved, comments closed with the recommendation, one lane line, INDEX, tab moved', async () => {
+test('Alex approves with a note: approved, comments stay open, one lane line, INDEX, tab moved', async () => {
   const h = await startScopeHarness(scopeWith('demo'))
   const { request, bearer, until } = h
   const s = stubs()
@@ -78,7 +78,7 @@ test('Alex approves with a note: approved, comments closed with the recommendati
     const note = 'Use Aside to make the ElevenLabs key, then just finish it.\nKeep the page light.'
     const ok = await approve({ mode: 'approve', comment: note, client_id: 'appr-1' })
     assert.equal(ok.status, 200, ok.text)
-    assert.deepEqual(ok.json.closed, ['T1', 'T2'], 'open comments close; the parked one stays parked')
+    assert.deepEqual(ok.json.closed, [], 'open comments stay open')
     const scope = await get()
     assert.equal(scope.approval.mode, 'approve')
     assert.equal(scope.approval.by, 'alex')
@@ -88,13 +88,13 @@ test('Alex approves with a note: approved, comments closed with the recommendati
     assert.ok(Date.parse(scope.approval.at))
     assert.match(scope.approval.at_et, ET)
     const [t1, t2, t3] = scope.threads
-    assert.equal(t1.status, 'resolved'); assert.equal(t1.resolution.how, 'approve'); assert.equal(t1.resolution.decision, 'Page first')
-    assert.equal(t2.status, 'resolved'); assert.equal(t2.resolution.how, 'approve'); assert.equal(t2.resolution.decision, 'Approved with the scope')
+    assert.equal(t1.status, 'open'); assert.equal(t1.resolution, undefined)
+    assert.equal(t2.status, 'open'); assert.equal(t2.resolution, undefined)
     assert.equal(t3.status, 'parked')
     await events.next('scope', (d) => d.scope?.approval?.mode === 'approve')
 
     // 3. The lane gets one line: APPROVED, his note verbatim (on one line), move to build.
-    const want = `[scoping demo] APPROVED by Alex (r3, ${scope.approval.at_et}). Alex's note: "Use Aside to make the ElevenLabs key, then just finish it. Keep the page light." Move to build. 2 open comments closed with your recommendations.`
+    const want = `[scoping demo] APPROVED by Alex (r3, ${scope.approval.at_et}). Alex's note: "Use Aside to make the ElevenLabs key, then just finish it. Keep the page light." Move to build what no open question touches; 2 open comments stay open.`
     await until(() => s.herdrLines().includes(`agent prompt w5H:pT1 ${want}`), 'the approval line in the lane pane')
     assert.equal(s.herdrLines().split('\n').filter((line) => line.includes('APPROVED')).length, 1, 'sent once')
     assert.ok(!s.herdrLines().includes('(new T'), 'closing comments sends no per-comment notes')
@@ -143,8 +143,8 @@ test('not yet sends only his note; with changes asks the lane to fold it in firs
     const done = await get()
     assert.equal(done.approval.mode, 'approve_with_changes')
     assert.equal(done.approval.via, 'admin')
-    assert.deepEqual(relayed.json.closed, ['T1', 'T2'])
-    await until(() => s.herdrLines().includes(`agent prompt w5H:pT1 [scoping demo] APPROVED WITH CHANGES by Alex in Admin (r3, ${done.approval.at_et}). Alex's note: "Drop the settings page." Fold his note into the doc first (unblock scope patch), then move to build. 2 open comments closed with your recommendations.`), 'the with-changes line')
+    assert.deepEqual(relayed.json.closed, [])
+    await until(() => s.herdrLines().includes(`agent prompt w5H:pT1 [scoping demo] APPROVED WITH CHANGES by Alex in Admin (r3, ${done.approval.at_et}). Alex's note: "Drop the settings page." Fold his note into the doc first (unblock scope patch), then: Move to build what no open question touches; 2 open comments stay open.`), 'the with-changes line')
     await until(() => s.laneLines().includes('section w5H:tAB inflight'), 'the tab moves')
     assert.match(readFileSync(index, 'utf8'), /· demo r3 · approved with changes · "Drop the settings page\."/)
   } finally { await h.close(); delete process.env.UNBLOCK_ADMIN_RELAY_TOKEN }
@@ -163,7 +163,7 @@ test('a long note reaches the lane in full through APPROVAL.md; an approval with
     await until(() => /APPROVED by Alex .*Alex's note \(long, in full at .*APPROVAL\.md\): "Start with the key\./.test(s.herdrLines()), 'a pointer to the full note')
     const line = s.herdrLines().split('\n').find((l) => l.includes('APPROVED'))
     assert.ok(line.length < 900, 'the pane line stays short')
-    assert.match(line, /Move to build\./)
+    assert.match(line, /Move to build/)
   } finally { await h.close() }
   const bare = await startScopeHarness(scopeWith('demo'))
   const t = stubs()
@@ -171,6 +171,33 @@ test('a long note reaches the lane in full through APPROVAL.md; an approval with
     const ok = await bare.request('/api/scope/demo/approve', { method: 'POST', headers: human, body: { mode: 'approve' } })
     assert.equal(ok.status, 200, ok.text)
     assert.equal((await bare.request('/api/scope/demo', { headers: human })).json.scope.approval.comment, '')
-    await bare.until(() => /\[scoping demo\] APPROVED by Alex \(r3, [^)]+\)\. Move to build\. 2 open comments closed/.test(t.herdrLines()), 'no note, no quote')
+    await bare.until(() => /\[scoping demo\] APPROVED by Alex \(r3, [^)]+\)\. Move to build what no open question touches; 2 open comments stay open\./.test(t.herdrLines()), 'no note, no quote')
   } finally { await bare.close() }
+})
+
+test('approving builds every piece no open question touches; the touched piece and its dependents wait', async () => {
+  const build = { pieces: [
+    { id: 'A', label: 'Schema', deps: [], p50_min: 10, p90_min: 20 },
+    { id: 'B', label: 'Mirror', deps: [], p50_min: 10, p90_min: 20 },
+    { id: 'C', label: 'Blocks', deps: ['A'], p50_min: 10, p90_min: 20 },
+    { id: 'D', label: 'Piece actions', deps: ['B'], p50_min: 10, p90_min: 20 },
+    { id: 'E', label: 'Copy', deps: [], p50_min: 10, p90_min: 20 },
+  ] }
+  const plan = { id: 'build', heading: 'Build', body_md: '```build\n' + JSON.stringify(build) + '\n```' }
+  const base = scopeWith('demo')
+  const scope = { ...base, doc: { sections: [...sections, plan] }, threads: [
+    { ...base.threads[0], piece_ids: ['B'] }, { ...base.threads[1], piece_id: 'D' }, base.threads[2]] }
+  const h = await startScopeHarness(scope)
+  const s = stubs()
+  try {
+    const ok = await h.request('/api/scope/demo/approve', { method: 'POST', headers: human, body: { mode: 'approve', client_id: 'half-1' } })
+    assert.equal(ok.status, 200, ok.text)
+    assert.deepEqual(ok.json.closed, [])
+    assert.deepEqual(ok.json.approved_pieces, ['A', 'C', 'E'])
+    assert.deepEqual(ok.json.waiting_pieces, [{ id: 'B', blocked_by: ['T1'] }, { id: 'D', blocked_by: ['T2', 'B'] }])
+    const stored = (await h.request('/api/scope/demo', { headers: human })).json.scope
+    assert.deepEqual(stored.threads.map((t) => t.status), ['open', 'open', 'parked'])
+    await h.until(() => /APPROVED by Alex \(r3, [^)]+\)\. Build A, C, E\. Waits on a question: B \(T1\), D \(T2, B\)\./.test(s.herdrLines()), 'the per-piece lane line')
+    await h.until(() => s.laneLines().includes('section w5H:tAB inflight --by alex --note scope approved r3; building A, C, E'), 'the tab moves for the building pieces')
+  } finally { await h.close() }
 })

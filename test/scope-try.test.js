@@ -58,13 +58,13 @@ test('Approve to try approves the scope and tells the PM to build a try copy and
 
     const ok = await approve({ mode: 'approve_to_try', comment: 'Make the Note button bigger.', client_id: 'try-1' })
     assert.equal(ok.status, 200, ok.text)
-    assert.deepEqual(ok.json.closed, ['T1'], 'approving to try closes open comments like any approval')
+    assert.deepEqual(ok.json.closed, [], 'approving to try leaves open comments open like any approval')
     const scope = await get()
     assert.equal(scope.approval.mode, 'approve_to_try')
     assert.equal(scope.approval.comment, 'Make the Note button bigger.')
     assert.match(readFileSync(join(process.env.UNBLOCK_SCOPING_DIR, 'voice', 'APPROVAL.md'), 'utf8'), /Mode: approve_to_try/)
 
-    const want = `[scoping voice] APPROVED TO TRY by Alex (r3, ${scope.approval.at_et}). Alex's note: "Make the Note button bigger." Build it on the project branch, start a try copy, label the PR try-build and don't queue it: it ships only when Alex presses Ship it. 1 open comment closed with your recommendation.`
+    const want = `[scoping voice] APPROVED TO TRY by Alex (r3, ${scope.approval.at_et}). Alex's note: "Make the Note button bigger." Build it on the project branch, start a try copy, label the PR try-build and don't queue it: it ships only when Alex presses Ship it.`
     await until(() => s.herdrLines().includes(`agent prompt w5H:pT1 ${want}`), 'the approve-to-try line')
     await until(() => s.laneLines().includes('section w5H:tAB inflight'), 'the tab moves to IN FLIGHT')
 

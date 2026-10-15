@@ -9,6 +9,7 @@ export interface ApprovalIndexEntry {
 export function appendApprovalIndex(root: string, approval: ApprovalIndexEntry): void
 
 export function moveTabToInflight(options: {
+  note?: string
   pane?: string | null
   revision: number
   herdr?: string

@@ -36,7 +36,7 @@ export function approvedBy(approval) {
   return approval?.by === 'agent' && typeof approval.approver === 'string' ? `agent:${approval.approver}` : 'alex'
 }
 
-export async function moveTabToInflight({ pane, revision, by = 'alex', onlyFromScoping = false, herdr = process.env.HERDR_BIN_PATH || 'herdr', herdrLane = process.env.UNBLOCK_HERDR_LANE || join(homedir(), '.local/bin/herdr-lane') }) {
+export async function moveTabToInflight({ pane, revision, by = 'alex', note, onlyFromScoping = false, herdr = process.env.HERDR_BIN_PATH || 'herdr', herdrLane = process.env.UNBLOCK_HERDR_LANE || join(homedir(), '.local/bin/herdr-lane') }) {
   try {
     if (typeof pane !== 'string' || !pane.trim()) return
     const tab = JSON.parse(await run(herdr, ['pane', 'get', pane], 10000)).result?.pane?.tab_id
@@ -51,7 +51,7 @@ export async function moveTabToInflight({ pane, revision, by = 'alex', onlyFromS
       if (!row || row.section !== 'scoping') return
     }
     if (scopingLabel) await run(herdr, ['tab', 'rename', tab, label.slice(9).trim()], 10000)
-    await run(herdrLane, ['section', tab, 'inflight', '--by', by, '--note', `scope approved r${revision}`], 10000)
+    await run(herdrLane, ['section', tab, 'inflight', '--by', by, '--note', note ?? `scope approved r${revision}`], 10000)
   } catch { /* Moving the tab is best effort; the approval is already durable. */ }
 }
 

@@ -269,7 +269,7 @@ let approving = false
 const approveMode = () => $<HTMLInputElement>('input[name="approve-mode"]:checked', approveDialog).value
 function updateApproveDialog() {
   const mode = approveMode(), count = scope?.threads.filter(t => t.status === 'open').length || 0
-  $('.approve-count', approveDialog).textContent = mode === 'not_yet' ? 'Comments stay open.' : count === 0 ? 'No open comments.' : `${count} open comment${count === 1 ? ' closes' : 's close'} with the lane's recommendation.`
+  $('.approve-count', approveDialog).textContent = mode === 'not_yet' ? 'Comments stay open.' : count === 0 ? 'No open comments.' : `${count} open comment${count === 1 ? ' stays' : 's stay'} open. Pieces they touch wait; the rest start building.`
   const button = $<HTMLButtonElement>('[data-action="approve-submit"]', approveDialog)
   button.textContent = mode === 'approve_to_try' ? 'Approve to try' : mode === 'approve' ? 'Approve and ship' : mode === 'approve_with_changes' ? 'Approve with changes' : 'Send, not yet'
   button.disabled = approving || !['approve', 'approve_to_try'].includes(mode) && !$<HTMLTextAreaElement>('textarea', approveDialog).value.trim()
