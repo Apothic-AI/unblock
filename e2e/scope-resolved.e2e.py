@@ -37,7 +37,7 @@ def C(name, js):
 
 VISIBLE = "(e) => !!e && e.getClientRects().length > 0 && getComputedStyle(e).visibility !== 'hidden' && getComputedStyle(e).display !== 'none'"
 NO_ERRORS = "const e = window.__errs || []; const csp = (window.__csp || []).filter((x) => x.startsWith('script') || x.startsWith('img')); return {ok: e.length === 0 && csp.length === 0, e, csp}"
-H = ("const vis = %s; const where = (t) => document.querySelector(`.sheet .card[data-t=\"${t}\"]`) || document.querySelector(`#cards .card[data-t=\"${t}\"]`); "
+H = ("const vis = %s; const where = (t) => { if (!document.querySelector(`.sheet .card[data-t=\"${t}\"], #cards .card[data-t=\"${t}\"]`)) document.querySelector(`.pin[data-pin=\"${t}\"]:not([hidden])`)?.click(); return document.querySelector(`.sheet .card[data-t=\"${t}\"]`) || document.querySelector(`#cards .card[data-t=\"${t}\"]`) }; "
      "const box = (t) => where(t)?.querySelector(`textarea[data-draft=\"${t}\"]`); "
      "const loaded = (img) => !!img && img.complete && img.naturalWidth > 0; "
      "const drafts = (c) => [...(c?.querySelectorAll('.thumbs.draft .thumb img') || [])]; "
@@ -74,7 +74,7 @@ def reload():
 
 
 def scenario(phone, label):
-    card = lambda t: "document.querySelector('#cards .card[data-t=\"%s\"], #detached .card[data-t=\"%s\"]')" % (t, t)
+    card = lambda t: "((t) => { const q = () => document.querySelector(`#cards .card[data-t=\"${t}\"], #detached .card[data-t=\"${t}\"]`); if (!q()) document.querySelector(`.pin[data-pin=\"${t}\"]:not([hidden])`)?.click(); return q() })('%s')" % t
     mark = lambda t: "document.querySelector('mark.hl[data-t=\"%s\"]')" % t
     CLEAR = "(m) => !!m && getComputedStyle(m).backgroundColor === 'rgba(0, 0, 0, 0)'"
     items = "(root) => [...(root?.querySelectorAll('.menu [role=menuitem]') || [])].filter(vis).map((b) => b.childNodes[0]?.textContent.trim() || b.textContent.trim())"
@@ -84,7 +84,7 @@ def scenario(phone, label):
     ctx = lambda target: js("(() => { const t = %s; if (!t) return 'no target'; t.scrollIntoView({ block: 'center' }); const r = t.getBoundingClientRect(); getSelection()?.removeAllRanges(); const ev = new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: r.left + Math.min(8, r.width / 2), clientY: r.top + r.height / 2, button: 2 }); t.dispatchEvent(ev); window.__ctxPrevented = ev.defaultPrevented; return ev.defaultPrevented })()" % target, 600)
     esc = js("(() => { (document.activeElement || document).dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); return true })()", 400)
     pick = lambda where, text: js("(() => { const b = [...(%s)?.querySelectorAll('.menu [role=menuitem]') || []].find((x) => (x.childNodes[0]?.textContent.trim() || x.textContent.trim()) === %s); b?.click(); return !!b })()" % (where, json.dumps(text)), 700)
-    X = H + " const card = (t) => document.querySelector(`#cards .card[data-t=\"${t}\"], #detached .card[data-t=\"${t}\"]`); const mark = (t) => document.querySelector(`mark.hl[data-t=\"${t}\"]`); const clear = %s; const items = %s; const menu = %s;" % (CLEAR, items, menu)
+    X = H + " const card = (t) => { const q = () => document.querySelector(`#cards .card[data-t=\"${t}\"], #detached .card[data-t=\"${t}\"]`); if (!q()) document.querySelector(`.pin[data-pin=\"${t}\"]:not([hidden])`)?.click(); return q() }; const mark = (t) => document.querySelector(`mark.hl[data-t=\"${t}\"]`); const clear = %s; const items = %s; const menu = %s;" % (CLEAR, items, menu)
     steps = [
         {'wait_for': 'mark.hl[data-t="T2"]'},
         {'wait': 400},

@@ -39,7 +39,7 @@ def check(name, ok, detail=''):
 
 
 VISIBLE = "(e) => !!e && e.getClientRects().length > 0 && getComputedStyle(e).visibility !== 'hidden' && getComputedStyle(e).display !== 'none'"
-H = ("const vis = %s; const where = (t) => document.querySelector(`.sheet .card[data-t=\"${t}\"]`) || document.querySelector(`#cards .card[data-t=\"${t}\"]`); "
+H = ("const vis = %s; const where = (t) => { if (!document.querySelector(`.sheet .card[data-t=\"${t}\"], #cards .card[data-t=\"${t}\"]`)) document.querySelector(`.pin[data-pin=\"${t}\"]:not([hidden])`)?.click(); return document.querySelector(`.sheet .card[data-t=\"${t}\"]`) || document.querySelector(`#cards .card[data-t=\"${t}\"]`) }; "
      "const mark = (t) => document.querySelector(`mark.hl[data-t=\"${t}\"]`); "
      "const btn = (c, label) => [...(c?.querySelectorAll('button') || [])].find((b) => b.textContent.trim() === label && vis(b)); "
      "const rgb = (s) => (s.match(/[0-9.]+/g) || []).map(Number); "
@@ -119,15 +119,15 @@ def scenario(phone, label):
         ]
     else:
         steps += [
-            *js("(() => { document.querySelector('#cards .card[data-t=\"T1\"] .q')?.click(); return true })()", 600),
+            *js("(() => { document.querySelector('.pin[data-pin=\"T1\"]')?.click(); return true })()", 600),
             C(f'{label}: a card with an unseen reply shows a quiet new-reply marker, no red badge', "return marked(where('T4'))"),
             {'shot': f'{label}-new-reply'},
             # 3. A lane resolve does not hide a reply he has not read.
             *hook('agent_resolve?thread=T4'),
             C(f'{label}: with Resolved off, the lane-resolved T4 still shows, marked, with the reply', "const c = where('T4'); return {ok: vis(c) && marked(c).ok && c.textContent.includes('Yes, Sol 6.1 medium.'), shown: vis(c), marked: marked(c)}"),
             {'shot': f'{label}-lane-resolved-unseen'},
-            *js("(() => { document.querySelector('#cards .card[data-t=\"T4\"] .q').click(); return true })()", 900),
-            *js("(() => { document.querySelector('#cards .card[data-t=\"T1\"] .q').click(); return true })()", 900),
+            *js("(() => { document.querySelector('.pin[data-pin=\"T4\"]')?.click(); return true })()", 900),
+            *js("(() => { document.querySelector('.pin[data-pin=\"T1\"]')?.click(); return true })()", 900),
             C(f'{label}: once read and left, the resolved T4 hides with Resolved off', "return {ok: !vis(where('T4'))}"),
         ]
     # 4. A reply Admin could not deliver.

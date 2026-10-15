@@ -45,7 +45,7 @@ SAMPLER = """(() => {
     window.__tl.push({ eyes: c?.querySelector('.reaction')?.getAttribute('title') || null, thinking: !!th, doing: th?.textContent.trim() || null,
       live: !!live, text: live?.querySelector('.live-text')?.textContent.trim() || '',
       final: [...(c?.querySelectorAll('.msg:not(.live)') || [])].some((m) => m.textContent.includes('then voice rides on it.')),
-      q3: card('T3')?.querySelector('.queue-place')?.textContent.trim() || null, q4: card('T4')?.querySelector('.queue-place')?.textContent.trim() || null })
+    })
   }, 40)
   return true
 })()"""
@@ -53,7 +53,7 @@ TL = "const tl = window.__tl || []; "
 
 
 def scenario(label):
-    steps = [{'wait_for': 'mark.hl[data-t="T2"]'}, {'wait': 800}, {'click': '#cards .card[data-t="T2"] .q'}, {'wait': 900},
+    steps = [{'wait_for': 'mark.hl[data-t="T2"]'}, {'wait': 800}, {'click': '.pin[data-pin="T2"]'}, {'wait': 900},
              {'eval': SAMPLER}, {'eval': "fetch('/__stream_reply?thread=T2&by=Rooms%20PM').then((r) => r.ok)"}, {'wait': 5200},
              {'eval': "(() => { clearInterval(window.__sampler); return (window.__tl || []).length })()"}]
     steps.append(C(f'{label}: no reload (the sampler survived the whole turn)', TL + "return {ok: tl.length > 60 && performance.getEntriesByType('navigation').length === 1, n: tl.length}"))
@@ -67,19 +67,17 @@ def scenario(label):
                    TL + "const s = tl.filter((x) => x.live && x.text && !x.final).at(-1); return {ok: !!s && !s.thinking, s}"))
     steps.append(C(f'{label}: done: the reply stands as a normal message, no live block or thinking line left, the 👀 stays',
                    TL + "const s = tl.at(-1); return {ok: !!s && s.final && !s.live && !s.thinking && s.eyes === 'Seen by Rooms PM', s}"))
-    steps.append(C(f'{label}: while T2 is answered, T3 and T4 show their place in the queue',
-                   TL + "const s = tl.find((x) => (x.thinking || x.live) && x.q3 === 'Next' && x.q4 === 'After T3'); return {ok: !!s, sample: tl.find((x) => x.thinking || x.live)}"))
     steps.append(C(f'{label}: no "Read by" or "Seen" chip on any card',
                    "const t = [...document.querySelectorAll('.card .delivery-chip')].map((n) => n.textContent); return {ok: !t.some((x) => /Read by|Seen/.test(x)), t}"))
     steps += hook('note?thread=T3&delivery=delivered&read_by=Scope%20PM')
     steps.append(C(f'{label}: a lane read receipt is a 👀 "Seen by Scope PM", not a Read by line',
-                   "const c = [...document.querySelectorAll('#cards .card[data-t=\"T3\"]')].find((n) => n.getClientRects().length); return {ok: c?.querySelector('.reaction')?.getAttribute('title') === 'Seen by Scope PM' && !/Read by/.test(c.textContent), text: c?.textContent.slice(0, 160)}"))
+                   "document.querySelector('.pin[data-pin=\"T3\"]')?.click(); const c = [...document.querySelectorAll('#cards .card[data-t=\"T3\"]')].find((n) => n.getClientRects().length); return {ok: c?.querySelector('.reaction')?.getAttribute('title') === 'Seen by Scope PM' && !/Read by/.test(c.textContent), text: c?.textContent.slice(0, 160)}"))
     # Follow-up (team-lead 2026-10-03): a refused or abandoned reply ends the item failed with a short reason; the
     # partial text goes and a quiet line says why, so nothing is left streaming forever.
     item = lambda q: [{'eval': "fetch('/__item?%s').then((r) => r.ok)" % q}, {'wait': 700}]
     steps += item('thread=T4&status=streaming&by=Rooms%20PM&text=Half%20a%20reply')
     steps.append(C(f'{label}: a streaming reply on T4 shows its partial text',
-                   "const c = [...document.querySelectorAll('#cards .card[data-t=\"T4\"]')].find((n) => n.getClientRects().length); return {ok: (c?.querySelector('.live .live-text')?.textContent || '').includes('Half a reply')}"))
+                   "document.querySelector('.pin[data-pin=\"T4\"]')?.click(); const c = [...document.querySelectorAll('#cards .card[data-t=\"T4\"]')].find((n) => n.getClientRects().length); return {ok: (c?.querySelector('.live .live-text')?.textContent || '').includes('Half a reply')}"))
     steps += item('thread=T4&status=failed&by=Rooms%20PM&error=your%20answer%20is%20too%20long%20(700%20of%20600%20characters)')
     steps.append(C(f'{label}: failed: no live block or thinking line, the partial text is gone, a quiet line gives the reason',
                    "const c = [...document.querySelectorAll('#cards .card[data-t=\"T4\"]')].find((n) => n.getClientRects().length); const f = c?.querySelector('.live-failed'); "

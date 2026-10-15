@@ -45,8 +45,8 @@ def scenario(label):
                    "const sw = document.documentElement.scrollWidth; return {ok: sw <= innerWidth, scrollWidth: sw, viewport: innerWidth}"))
     steps.append(C(f'{label}: every block in a doc body ends inside the doc column',
                    RECTS + " const over = [...document.querySelectorAll('.doc .body > *')].map((b) => [b.className || b.tagName, Math.round(b.getBoundingClientRect().right)]).filter(([, r]) => r > doc.right + 1); return {ok: over.length === 0, docRight: doc.right, over}"))
-    steps.append(C(f'{label}: the doc column ends left of the comment margin (or the viewport when the margin is hidden)',
-                   RECTS + " const limit = sideRect ? sideRect.left : innerWidth; return {ok: doc.right <= limit, docRight: doc.right, docWidth: doc.width, limit, margin: !!sideRect}"))
+    steps.append(C(f'{label}: the doc column stays at most 720 px and inside the viewport',
+                   RECTS + " const limit = innerWidth; return {ok: doc.right <= limit && doc.width <= 720, docRight: doc.right, docWidth: doc.width, limit}"))
     steps.append(C(f'{label}: the 12-tab strip scrolls inside the column',
                    RECTS + " const t = document.querySelector('.scope-tabs [role=\"tablist\"]'), r = t.getBoundingClientRect(); return {ok: t.children.length === 12 && t.scrollWidth > t.clientWidth && r.right <= doc.right + 1, tabs: t.children.length, scrollWidth: t.scrollWidth, clientWidth: t.clientWidth, right: r.right, docRight: doc.right}"))
     steps.append(C(f'{label}: the wide table scrolls inside the column',

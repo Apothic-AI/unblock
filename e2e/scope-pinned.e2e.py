@@ -41,7 +41,7 @@ DRAFT = 'my draft, still typing'
 def desktop(label):
     card = '#cards .card[data-t="T2"]'
     steps = [{'wait_for': 'mark.hl[data-t="T2"]'}, {'wait': 800},
-             {'click': f'{card} .q'}, {'wait': 1200},
+             {'click': '.pin[data-pin="T2"]'}, {'wait': 1200},
              {'fill': [f'{card} textarea[data-draft="T2"]', DRAFT]},
              {'eval': f"(() => {{ const c = {CARD}; window.__top = c.getBoundingClientRect().top; window.__y0 = scrollY; window.__m0 = document.querySelector('mark.hl[data-t=\"T2\"]').getBoundingClientRect().top + scrollY; return window.__top }})()"}]
     steps += hook('grow_plan')

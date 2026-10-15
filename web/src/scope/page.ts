@@ -3,7 +3,6 @@ import './scope.css'
 import { renderContents } from './toc'
 import { foldAgents, openFoldsAround, openFoldsWithQuestions } from './agents-fold'
 import { oneScreen, renderOverview, showChapter, fitPicture } from './overview'
-import { placeCards } from './card-layout'
 import { demoSizes, payloadKey, pollWhileVisible, sizeGate } from './loop-guards'
 import { startTelemetry } from './telemetry'
 import '../vendor/page-chrome/v1.css'
@@ -18,7 +17,7 @@ import { anchorFromRange, sectionText, rangeFromAnchor } from './dom-anchor'
 import { assetUrl, esc, markdown, renderMermaid } from './markdown'
 import { buildSignature, buildStrip, layoutBuildGraphs, setBuildEstimates } from './build.ts'
 import { answerHtml } from './answer.ts'
-import { chatMessageHtml, handlingChipHtml, alexWordsHtml } from './people.ts'
+import { chatMessageHtml, handlingChipHtml, alexWordsHtml, avatarHtml, author } from './people.ts'
 import { commentState } from './comment-state'
 import { approvalBannerHtml } from './approval-banner.js'
 import { prepareAudio } from '../lib/voice-audio'
@@ -31,15 +30,16 @@ const apiBase = (boot.api || '/api/scope').replace(/\/$/, '')
 const embed = boot.embed === true || new URLSearchParams(location.search).get('embed') === '1'
 document.body.classList.toggle('embed', embed)
 document.body.classList.toggle('in-frame', window.parent !== window)
-const doc = $('#doc'), cards = $('#cards'), detached = $('#detached'), sheet = $('#sheet')
+const doc = $('#doc'), cards = $('#cards'), detached = $('#detached'), sheet = $('#sheet'), pins = $('#pins')
 const phone = () => matchMedia('(max-width:899px)').matches
+const floating = () => !phone() && !oneScreen(scope)
 const storage = { get(key: string) { try { return localStorage.getItem(key) } catch { return null } }, set(key: string, value: string) { try { localStorage.setItem(key, value) } catch {} }, remove(key: string) { try { localStorage.removeItem(key) } catch {} } }
 const time = (iso: string) => `${new Date(iso).toLocaleString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })} ET`
 let scope: ScopeV2 | null = null, focused: string | null = null, initialized = false
 let postedClient: string | null = null
 let detachedPin: { id: string; top: number } | null = null
 function focusedCard() { return [...cards.querySelectorAll<HTMLElement>('.card[data-t]'), ...detached.querySelectorAll<HTMLElement>('.card[data-t]')].find(n => n.dataset.t === focused) }
-let showResolved = false
+let showResolved = false, peeking: string | null = null
 const commentsBar = embed ? commentsHeader($('.side-head'), { open: 0, index: 0, total: 0, showResolved, onPrev: () => step(-1), onNext: () => step(1), onShowResolved: checked => { showResolved = checked; storage.set('scope:showResolved', String(checked)); if (!checked && scope?.threads.find(t => t.id === focused)?.status !== 'open') focused = null; renderCards() } }) : null
 let chrome: ReturnType<typeof mountPage> | null = null, chromeSignature = ''
 const APP_NAME = { recruiter: 'Recruiter', closer: 'Closer', 'rails-admin': 'Rails' }
@@ -66,6 +66,7 @@ function syncChrome() {
   if (!chrome) chrome = mountPage($('#page'), spec)
   else if (signature !== chromeSignature) chrome.update(spec)
   chromeSignature = signature
+  placePinNav(); renderPinNav()
 }
 let selection: Anchor | null = null, selectionTop = 0, composing: Anchor | null = null
 let selectionRange: Range | null = null, selectionScrolling = false
@@ -565,19 +566,20 @@ function baseCardHtml(t: Thread) {
   const ownComment = isOpen && t.kind === 'comment' && t.messages[0]?.from === 'alex' && !modes.has(t.id)
   const commentText = drafts.get(`${t.id}:comment`) ?? storage.get(draftStorageKey(`${t.id}:comment`)) ?? t.messages[0]?.text
   const messages = t.messages.length > 1 ? `<div class="msgs only-on">${t.messages.slice(1).map((m, i) => chatMessageHtml(t, i + 1, `<div>${m.kind === 'reject' ? 'No' + (m.text ? ': ' : '') : ''}${esc(m.text)}</div>${imageStrip(m.images)}`)).join('')}</div>` : ''
-  let body = ''
+  let body = '', take = ''
   if (ownComment) body = `<div class="reply">${t.anchor.general && !phone() ? '<p class="card-state">General comment</p>' : ''}<textarea data-draft="${t.id}:comment" rows="2" aria-label="Your comment">${esc(commentText)}</textarea>${imageStrip(t.messages[0].images)}${messages}<p class="error" role="alert">${esc(errors.get(t.id))}</p><div class="actions"><button class="btn primary" data-action="save-comment"${commentText === t.messages[0].text ? ' hidden' : ''}>Save</button><button class="btn" data-action="menu-reply">Reply</button>${docFlags().resolve ? '<button class="btn" data-action="resolve">Resolve</button>' : ''}</div></div>`
   else if (compose && (isOpen || mode === 'reply')) body = `<div class="reply only-on"><textarea data-draft="${t.id}" rows="${modes.has(t.id) ? 2 : 1}" placeholder="${esc(compose[0])}">${esc(getDraft(t.id))}</textarea>${imageStrip(getImages(t.id), true, t.id)}<p class="error" role="alert">${esc(errors.get(t.id))}</p><div class="actions">${attachControl}<button class="btn primary" data-action="${t.kind === 'comment' ? 'reply' : 'send'}">${compose[1]}</button>${isOpen && docFlags().resolve ? '<button class="btn" data-action="resolve">Resolve</button>' : ''}${modes.has(t.id) ? '<button class="btn" data-action="cancel">Cancel</button>' : ''}</div></div>`
   else if (isOpen && t.rejected_at) body = '<div class="waiting"><span class="dot"></span>Rejected, waiting for a new option</div>'
   else if (isOpen && (t.kind === 'question' || t.recommendation)) {
     // Alex, 2026-10-02 19:45 ET: a note is a reply to the lane, never a decision; Approve takes the recommendation.
-    const approve = t.recommendation ? '<button class="btn primary" data-action="take">Approve</button>' : ''
-    body = `<div class="reply only-on"><textarea data-draft="${t.id}" rows="1" placeholder="Reply to the lane · ⌘Enter sends">${esc(getDraft(t.id))}</textarea>${imageStrip(getImages(t.id), true, t.id)}<p class="error" role="alert">${esc(errors.get(t.id))}</p><div class="actions">${attachControl}<button class="btn${approve ? '' : ' primary'}" data-action="reply">Reply</button>${docFlags().resolve ? '<button class="btn" data-action="resolve">Resolve</button>' : ''}${approve}${approve && t.kind !== 'question' ? '<button class="btn" data-action="no">Reject</button>' : ''}</div>${approve ? '<p class="pick-hint">Approve takes the recommendation; a note goes with it.</p>' : ''}</div>`
+    const approve = t.recommendation ? '<button class="btn primary" data-action="take">Take recommendation</button>' : ''
+    take = approve
+    body = `<div class="reply only-on"><textarea data-draft="${t.id}" rows="1" placeholder="Reply to the lane · ⌘Enter sends">${esc(getDraft(t.id))}</textarea>${imageStrip(getImages(t.id), true, t.id)}<p class="error" role="alert">${esc(errors.get(t.id))}</p><div class="actions">${attachControl}<button class="btn${approve ? '' : ' primary'}" data-action="reply">Reply</button>${docFlags().resolve ? '<button class="btn" data-action="resolve">Resolve</button>' : ''}${approve && t.kind !== 'question' ? '<button class="btn" data-action="no">Reject</button>' : ''}</div></div>`
   }
   const newRec = !t.rejected_at && t.messages.some(m => m.kind === 'option')
   const state = [t.anchor.rect ? `Slide ${slideNumber(t.anchor.section)} · ${esc(scope!.doc.sections.find(s => s.id === t.anchor.section)?.heading)}` : '', copiedLinks.has(t.id) ? 'Link copied' : deliveryChip(t.id), handlingChipHtml(t), t.anchor.embed ? `<button class="btn small" data-action="jump-text">${missing.has(t.id) ? 'Embed changed' : 'Embed ' + esc(t.anchor.embed.src)} · <q>${esc(t.anchor.embed.quote)}</q></button>` : t.anchor.general ? (ownComment ? '' : 'General comment') : t.anchor.t != null ? `<span class="moment">at ${moment(t.anchor.t)}</span>` : ''].filter(Boolean).join(' · ')
   return `<div class="head"><span class="kind"><span class="dot ${isOpen ? t.kind : 'resolved'}"></span><span class="who">${label}</span></span>${replyMarker(t) ? '<span class="new-reply" data-unread>New reply</span>' : ''}<span class="when">${time(t.created_at)}</span>${isOpen ? checkButton : ''}${moreButton}</div>${menu}${ownComment ? body : chatMessageHtml(t, 0, `<div class="q">${esc(t.messages[0]?.text)}</div>${imageStrip(t.messages[0]?.images)}`)}${t.anchor.crop ? `<div class="thumbs"><button type="button" class="thumb region-thumb" data-action="view-image"><img src="${assetUrl(t.anchor.crop, `${endpoint}/assets`)}" alt="Selected slide area"></button></div>` : ''}${state ? `<p class="card-state">${state}</p>` : ''}
-  ${isOpen && t.recommendation ? `<div class="rec${newRec ? ' new' : ''}"><span class="lbl">Recommended</span><span class="txt">${esc(t.recommendation)}</span></div>` : ''}
+  ${isOpen && t.recommendation ? `<div class="rec${newRec ? ' new' : ''}"><span class="lbl">Recommended</span><span class="txt">${esc(t.recommendation)}</span>${take ? `<span class="rec-take only-on">${take}<span class="pick-hint">A note you type goes with it.</span></span>` : ''}</div>` : ''}
   ${isOpen && t.kind === 'question' && t.options?.length ? `<details class="other-options only-on"><summary>Other options (${t.options.length - 1})</summary>${t.options.slice(1).map((option, i) => `<div class="other-option"><span>${esc(option)}</span><button class="btn small" data-action="option" data-option="${i + 1}">Pick this</button></div>`).join('')}</details>` : ''}
   ${isOpen && t.why ? `<details class="why only-on"><summary>Why</summary><p>${esc(t.why)}</p></details>` : ''}
   ${ownComment ? '' : messages}
@@ -589,7 +591,20 @@ function cardHtml(t: Thread) {
   return card.innerHTML
 }
 function card(t: Thread) {
-  const node = document.createElement('div'); node.className = `card ${t.kind} ${t.status}${docFlags().qa ? ' explainer' : ''}${unread(t) ? ' unread' : ''}${focused === t.id ? ' on' : ''}`; node.dataset.t = t.id; if (sending.has(t.id)) node.dataset.sending = 'true'; node.innerHTML = cardHtml(t); return node
+  const node = document.createElement('div'); node.className = `card ${t.kind} ${t.status}${docFlags().qa ? ' explainer' : ''}${unread(t) ? ' unread' : ''}${focused === t.id ? ' on' : ''}`; node.dataset.t = t.id; if (sending.has(t.id)) node.dataset.sending = 'true'; node.innerHTML = cardHtml(t)
+  if (floating()) popChrome(node, t.id)
+  return node
+}
+const closeIcon = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>'
+const chevron = (up: boolean) => `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${up ? 'm6 15 6-6 6 6' : 'm6 9 6 6 6-6'}"/></svg>`
+function popChrome(node: HTMLElement, id?: string) {
+  const head = node.querySelector<HTMLElement>(':scope > .head')
+  if (!head) return
+  const list = navList(), i = id ? list.findIndex(t => t.id === id) : -1
+  const nav = i >= 0 && list.length > 1 ? `<span class="pop-nav"><span class="pop-pos">${i + 1} of ${list.length}</span><button type="button" class="pop-btn" data-go="-1" aria-label="Previous">${chevron(true)}</button><button type="button" class="pop-btn" data-go="1" aria-label="Next">${chevron(false)}</button></span>` : ''
+  const more = head.querySelector(':scope > .check, :scope > .more')
+  if (nav) { if (more) more.insertAdjacentHTML('beforebegin', nav); else head.insertAdjacentHTML('beforeend', nav) }
+  head.insertAdjacentHTML('beforeend', `<button type="button" class="pop-btn pop-close" data-action="close-pop" aria-label="Close">${closeIcon}</button>`)
 }
 function highlight() {
   missing.clear()
@@ -634,7 +649,7 @@ function render() {
   const pin = pinnedCard && pinnedRect && pinnedRect.bottom > 0 && pinnedRect.top < innerHeight ? { id: focused, top: pinnedRect.top } : null
   document.documentElement.style.overflowAnchor = pin ? 'none' : ''
   const first = !initialized
-  if (first) { focused = phone() ? null : open().find(t => t.anchor.section !== 'ask')?.id || null; initialized = true }
+  if (first) { focused = phone() || floating() ? null : open().find(t => t.anchor.section !== 'ask')?.id || null; initialized = true }
   updateCommentStates()
   const line = inflight(), signatures = new Map(scope.doc.sections.map(s => [s.id, signature(s, line)]))
   const unchanged = (id: string) => signatures.get(id) === sectionSignatures.get(id)
@@ -727,7 +742,7 @@ function insertAtAnchor(node: HTMLElement, anchor: Anchor) {
   else { const range = rangeFromAnchor(anchor)?.range; const after = [...cards.children].find(n => { const mark = marks((n as HTMLElement).dataset.t!)[0]; return range && mark && range.comparePoint(mark.firstChild || mark, 0) > 0 }); cards.insertBefore(node, after || null) }
 }
 function renderCards() {
-  if (focused && !showResolved && scope?.threads.find(t => t.id === focused)?.status !== 'open') { focused = null; closeSheet() }
+  if (focused && focused !== peeking && !showResolved && scope?.threads.find(t => t.id === focused)?.status !== 'open') { if (floating() && cards.querySelector(`.card[data-t="${focused}"]`)) peeking = focused; else { focused = null; closeSheet() } }
   syncFigureFocus()
   if (focused && document.visibilityState === 'visible' && document.querySelector(`.card.on[data-t="${focused}"]`)) markSeen(focused)
   syncThreadClasses()
@@ -752,17 +767,19 @@ function renderCards() {
     const existing = kept?.dataset.t === t.id ? kept : focusedNode?.dataset.t === t.id ? focusedNode : null
     return existing ? refreshCard(existing, fresh) : fresh
   }
-  const mainNodes: Node[] = visible.filter(t => !missing.has(t.id) || holds(t.id)).map(makeCard)
+  const peek = peeking && peeking === focused && !visible.some(t => t.id === peeking) ? byId.get(peeking) : undefined
+  const shown = floating() ? (composing ? [] : [...visible, ...(peek ? [peek] : [])].filter(t => t.id === focused)) : visible
+  const mainNodes: Node[] = shown.filter(t => !missing.has(t.id) || holds(t.id)).map(makeCard)
   if (composer?.parentElement === cards) {
     const range = composing && !composing.general && rangeFromAnchor(composing)?.range
     const at = !range ? 0 : mainNodes.findIndex(n => { const mark = marks((n as HTMLElement).dataset.t!)[0]; return mark && range.comparePoint(mark.firstChild!, 0) > 0 })
     mainNodes.splice(at < 0 ? mainNodes.length : at, 0, composer)
   }
-  if (kept?.parentElement === cards && !mainNodes.includes(kept) && kept.dataset.t && visible.some(t => t.id === kept.dataset.t) && (getDraft(kept.dataset.t).trim() || getImages(kept.dataset.t).length || uploading.get(kept.dataset.t))) mainNodes.push(kept)
+  if (!floating() && kept?.parentElement === cards && !mainNodes.includes(kept) && kept.dataset.t && visible.some(t => t.id === kept.dataset.t) && (getDraft(kept.dataset.t).trim() || getImages(kept.dataset.t).length || uploading.get(kept.dataset.t))) mainNodes.push(kept)
   replaceAround(cards, mainNodes, kept?.parentElement === cards ? kept : composer)
-  const gone = visible.filter(t => missing.has(t.id) && !holds(t.id))
+  const gone = floating() ? [] : visible.filter(t => missing.has(t.id) && !holds(t.id))
   const detachedNodes: Node[] = gone.length ? [document.createTextNode('Detached · the text it was on changed'), ...gone.map(makeCard)] : []
-  if (kept?.parentElement === detached && kept.dataset.t && !detachedNodes.includes(kept) && visible.some(t => t.id === kept.dataset.t) && (getDraft(kept.dataset.t).trim() || getImages(kept.dataset.t).length || uploading.get(kept.dataset.t))) detachedNodes.push(kept)
+  if (!floating() && kept?.parentElement === detached && kept.dataset.t && !detachedNodes.includes(kept) && visible.some(t => t.id === kept.dataset.t) && (getDraft(kept.dataset.t).trim() || getImages(kept.dataset.t).length || uploading.get(kept.dataset.t))) detachedNodes.push(kept)
   replaceAround(detached, detachedNodes, kept)
   for (const item of sending.values()) if ((!item.id && item.anchor) || item.failed) {
     if (item.id && scope?.threads.some(t => t.id === item.id)) {
@@ -775,6 +792,7 @@ function renderCards() {
     else cards.prepend(node)
   }
   if (composing) renderComposer()
+  renderPins(visible)
   document.body.classList.toggle('show-resolved', !docFlags().resolve || showResolved)
   const resolvedCount = ordered().filter(t => t.status !== 'open').length, resolvedLabel = `Resolved (${resolvedCount})`
   const chip = $('#resolvedChip'); chip.textContent = resolvedLabel; chip.hidden = !docFlags().resolve || resolvedCount === 0; chip.setAttribute('aria-pressed', String(showResolved))
@@ -784,6 +802,160 @@ function renderCards() {
   }
   updateCount(); layout(); disablePending()
 }
+function closePop() {
+  popPlace = null; peeking = null
+  if (composing) { clearRegionDraft(); composing = null; changedComposer = null }
+  if (focused) focus(null); else renderCards()
+}
+const pinFaces = new WeakMap<HTMLElement, string>()
+function pinHtml(t: Thread) {
+  const people = [...new Map(t.messages.map((_, i) => { const by = author(t, i); return [`${by.kind}:${by.id}`, by] })).values()]
+  const faces = people.slice(0, 2).map(avatarHtml).join('')
+  return `${faces}${t.messages.length > 1 ? `<span class="pin-n">${t.messages.length}</span>` : ''}${unread(t) ? '<span class="pin-dot"></span>' : ''}`
+}
+function renderPins(visible: Thread[]) {
+  if (!floating()) { pins.replaceChildren(); return }
+  const existing = new Map([...pins.children].map(n => [(n as HTMLElement).dataset.pin, n as HTMLElement]))
+  const shown = [...visible, ...ordered().filter(t => !visible.some(v => v.id === t.id) && unread(t))]
+  const nodes = shown.filter(t => !missing.has(t.id)).map(t => {
+    let node = existing.get(t.id)
+    if (!node) { node = document.createElement('button'); node.setAttribute('type', 'button'); node.dataset.pin = t.id }
+    node.className = `pin ${t.kind} ${t.status}${t.id === focused ? ' on' : ''}${t.messages.length > 1 ? ' stack' : ''}`
+    const html = pinHtml(t)
+    if (pinFaces.get(node) !== html) { node.innerHTML = html; pinFaces.set(node, html) }
+    node.setAttribute('aria-label', `${t.kind === 'question' ? 'Question' : 'Comment'}: ${t.messages[0]?.text.slice(0, 80) || ''}`)
+    node.setAttribute('aria-expanded', String(t.id === focused))
+    return node
+  })
+  replaceAround(pins, nodes)
+}
+let popPlace: { key: string; side: 'right' | 'below' | 'above'; dy: number } | null = null
+const margin = () => Math.min(doc.getBoundingClientRect().right + 14, innerWidth - 46)
+const barBottom = () => Math.max(0, document.querySelector('.pc-bar')?.getBoundingClientRect().bottom || 0) + 8
+function lineOf(anchor: Anchor | undefined | null, id?: string): DOMRect | null {
+  if (!anchor) return null
+  const title = () => (document.querySelector('#page > .pc-head .pc-title') || document.getElementById('title'))?.getBoundingClientRect() || null
+  if (anchor.general) return title()
+  const stage = anchor.embed && embedStage(anchor)
+  if (stage) return stage.getBoundingClientRect()
+  const list = id ? [...doc.querySelectorAll<HTMLElement>(`mark[data-t="${id}"]`)] : []
+  const shown = list.filter(m => !hidden(m) && m.getClientRects().length)
+  if (shown.length) {
+    const last = shown.at(-1)!
+    if (last.classList.contains('region')) return last.getBoundingClientRect()
+    return [...last.getClientRects()].filter(r => r.width > 0).at(-1) || last.getBoundingClientRect()
+  }
+  const summary = list[0]?.closest('details:not([open])')?.querySelector('summary')
+  if (summary?.getClientRects().length) return summary.getBoundingClientRect()
+  if (list.length && list.some(m => m.closest('[role="tabpanel"][hidden]'))) return null
+  if (anchor.rect) { const draft = document.querySelector('.region-draft'); if (draft) return draft.getBoundingClientRect() }
+  const range = rangeFromAnchor(anchor)?.range
+  const rect = range && [...range.getClientRects()].filter(r => r.width > 0).at(-1)
+  if (rect) return rect
+  if (anchor.section === 'title') return title()
+  const section = document.getElementById(anchor.section)
+  return section?.getClientRects().length ? (section.querySelector('h1,h2,h3,p') || section).getBoundingClientRect() : null
+}
+function pinSpot(anchor: Anchor, line: DOMRect, region: boolean) {
+  if (region) return { x: line.right - 14, y: line.top - 14, k: line.right }
+  if (anchor.embed) return { x: margin(), y: line.top + 4, k: line.right }
+  return { x: margin(), y: line.top + Math.min(line.height, 40) / 2 - 14, k: line.right }
+}
+function layoutFloating() {
+  const origin = pins.getBoundingClientRect()
+  const placed: { x: number; y: number; w: number }[] = []
+  const spots = [...pins.children].map(n => {
+    const node = n as HTMLElement, t = scope?.threads.find(t => t.id === node.dataset.pin)
+    const line = t && lineOf(t.anchor, t.id)
+    if (!t || !line) return { node, spot: null }
+    return { node, spot: pinSpot(t.anchor, line, !!doc.querySelector(`mark.region[data-t="${t.id}"]`) && !t.anchor.embed) }
+  }).sort((a, b) => Math.round((a.spot?.y ?? 0) - (b.spot?.y ?? 0)) || (a.spot?.k ?? 0) - (b.spot?.k ?? 0))
+  for (const { node, spot } of spots) {
+    node.hidden = !spot
+    if (!spot) continue
+    const w = node.offsetWidth || 28
+    let x = spot.x
+    for (let guard = 0; guard < 8; guard++) {
+      const hit = placed.find(p => Math.abs(p.y - spot.y) < 28 && x < p.x + p.w + 4 && x + w > p.x - 4)
+      if (!hit) break
+      x = hit.x + hit.w + 6
+    }
+    placed.push({ x, y: spot.y, w })
+    node.style.left = `${x - origin.left}px`; node.style.top = `${spot.y - origin.top}px`
+  }
+  const base = cards.getBoundingClientRect()
+  for (const node of cards.querySelectorAll<HTMLElement>(':scope > .card')) {
+    node.style.transitionProperty = 'opacity'
+    const composer = node.classList.contains('composer'), queued = [...sending.values()].find(item => !item.id && item.clientId === node.dataset.client)
+    const anchor = composer ? composing : queued ? queued.anchor : scope?.threads.find(t => t.id === node.dataset.t)?.anchor
+    const key = composer ? `composer:${composerKey()}` : queued ? `client:${queued.clientId}` : `t:${node.dataset.t}`
+    const pin = node.dataset.t ? [...pins.children].find(n => (n as HTMLElement).dataset.pin === node.dataset.t && !(n as HTMLElement).hidden) as HTMLElement | undefined : undefined
+    const line = lineOf(anchor, node.dataset.t)
+    let spot: DOMRect | null = pin ? pin.getBoundingClientRect() : null
+    if (!spot && line && anchor && !anchor.general) { const p = pinSpot(anchor, line, !!anchor.rect); spot = new DOMRect(p.x, p.y, 28, 28) }
+    const w = node.offsetWidth, h = node.offsetHeight, top0 = barBottom(), bottom0 = innerHeight - 12
+    if (!spot || !line) {
+      if (popPlace?.key !== key) { popPlace = { key, side: 'below', dy: 0 }; node.style.left = `${innerWidth - 16 - w - base.left}px`; node.style.top = `${top0 - base.top}px` }
+      continue
+    }
+    if (popPlace?.key !== key) {
+      const shift = spot.top >= top0 && spot.bottom <= bottom0 ? 0 : innerHeight / 2 - spot.top
+      const pTop = spot.top + shift, lTop = line.top + shift, lBottom = line.bottom + shift
+      let side: 'right' | 'below' | 'above', top: number
+      if (spot.right + 10 + w <= innerWidth - 16) { side = 'right'; top = Math.max(top0, Math.min(pTop - 8, bottom0 - h)) }
+      else if (lBottom + 8 + h <= bottom0 || lTop - 8 - h < top0) { side = 'below'; top = Math.max(top0, Math.min(lBottom + 8, bottom0 - h)) }
+      else { side = 'above'; top = lTop - 8 - h }
+      popPlace = { key, side, dy: top - pTop }
+    }
+    const left = popPlace.side === 'right' ? spot.right + 10 : Math.max(16, Math.min(spot.right - w, innerWidth - 16 - w))
+    node.style.left = `${left - base.left}px`; node.style.top = `${spot.top + popPlace.dy - base.top}px`
+  }
+  if (!cards.querySelector(':scope > .card')) popPlace = null
+}
+const pinNav = document.createElement('div'); pinNav.className = 'pin-nav'
+pinNav.innerHTML = `<button type="button" class="pin-count" aria-haspopup="menu" aria-expanded="false"></button><button type="button" class="pop-btn" data-nav="-1" aria-label="Previous comment">${chevron(true)}</button><button type="button" class="pop-btn" data-nav="1" aria-label="Next comment">${chevron(false)}</button>`
+const pinMenu = document.createElement('div'); pinMenu.className = 'pin-menu pc-menu'; pinMenu.setAttribute('role', 'menu'); pinMenu.hidden = true
+pinNav.append(pinMenu)
+function placePinNav() {
+  const bar = document.querySelector('#page > .pc-bar'), more = bar?.querySelector('.pc-more')
+  if (bar && more) { if (pinNav.nextElementSibling !== more) more.before(pinNav) }
+  else if (pinNav.parentElement !== document.body) document.body.append(pinNav)
+  pinNav.classList.toggle('floating-nav', !bar)
+}
+function renderPinNav() {
+  if (!scope) return
+  const flags = docFlags(), list = navList(), resolved = flags.resolve ? ordered().filter(t => t.status !== 'open') : []
+  pinNav.hidden = !list.length && !resolved.length
+  const count = pinNav.querySelector<HTMLButtonElement>('.pin-count')!
+  count.textContent = flags.resolve ? `${list.length} open` : `${list.length} ${list.length === 1 ? 'question' : 'questions'}`
+  pinNav.querySelectorAll<HTMLButtonElement>('[data-nav]').forEach(button => { button.disabled = !list.length })
+  if (!pinMenu.hidden) renderPinMenu()
+}
+function renderPinMenu() {
+  const flags = docFlags(), list = navList(), resolved = flags.resolve ? ordered().filter(t => t.status !== 'open') : []
+  const row = (t: Thread) => `<button type="button" class="pc-menu-item pin-row${t.id === focused ? ' on' : ''}" role="menuitem" data-open="${t.id}">${avatarHtml(author(t, 0))}<span class="pin-row-text"><span class="pin-row-q">${esc(t.messages[0]?.text)}</span><span class="pin-row-quote">${missing.has(t.id) ? 'Text changed · ' : ''}${t.anchor.general ? 'Whole doc' : esc(t.anchor.embed?.quote || t.anchor.quote)}</span></span>${unread(t) ? '<span class="unread-dot"></span>' : ''}</button>`
+  pinMenu.innerHTML = `${list.map(row).join('') || '<p class="pin-empty">Nothing open</p>'}${resolved.length ? `<label class="pc-menu-item pin-resolved"><input type="checkbox"${showResolved ? ' checked' : ''}> Show resolved (${resolved.length})</label>` : ''}`
+}
+function togglePinMenu(open = pinMenu.hidden) {
+  pinMenu.hidden = !open
+  pinNav.querySelector('.pin-count')!.setAttribute('aria-expanded', String(open))
+  if (open) renderPinMenu()
+}
+pinNav.addEventListener('click', e => {
+  const target = e.target as HTMLElement
+  if (target.closest('.pin-count')) { togglePinMenu(); return }
+  const go = target.closest<HTMLElement>('[data-nav]'); if (go) { togglePinMenu(false); step(Number(go.dataset.nav)); return }
+  const row = target.closest<HTMLElement>('[data-open]'); if (row) { togglePinMenu(false); focus(row.dataset.open!, true); return }
+})
+pinNav.addEventListener('change', e => {
+  const input = e.target as HTMLInputElement
+  if (!input.closest('.pin-resolved')) return
+  showResolved = input.checked; storage.set('scope:showResolved', String(showResolved))
+  if (!showResolved && scope?.threads.find(t => t.id === focused)?.status !== 'open') focused = null
+  renderCards(); syncChrome()
+})
+document.addEventListener('click', e => { if (!pinMenu.hidden && !pinNav.contains(e.target as Node)) togglePinMenu(false) })
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && !pinMenu.hidden) { e.preventDefault(); togglePinMenu(false) } })
 function figureFor(mark: HTMLElement | undefined) { return mark?.closest('figcaption')?.closest<HTMLElement>('figure.fig') }
 function syncFigureFocus() { const figure = focused ? figureFor(marks(focused)[0]) : null; doc.querySelectorAll('figure.fig').forEach(node => node.classList.toggle('on', node === figure)) }
 function layoutShots() {
@@ -822,28 +994,8 @@ document.addEventListener('scope-tab-change', () => layout())
 function layout() {
   layoutShots()
   if (phone()) return
+  if (floating()) { layoutFloating(); showSelection(); return }
   if (oneScreen(scope)) { fitPicture(); cards.style.height = ''; cards.querySelectorAll<HTMLElement>(':scope > .card').forEach(node => { node.style.top = ''; node.style.transitionProperty = '' }); showSelection(); return }
-  const base = cards.getBoundingClientRect().top
-  const nodes = [...cards.querySelectorAll<HTMLElement>(':scope > .card')]
-  for (const node of nodes) node.style.transitionProperty = node.dataset.t === focused ? 'background, border-color, box-shadow' : ''
-  const want = nodes.map(n => {
-    if (detachedPin && !composing && n.dataset.t === focused && detachedPin.id === focused) return detachedPin.top
-    const queued = [...sending.values()].find(item => !item.id && item.clientId === n.dataset.client), range = queued?.anchor && rangeFromAnchor(queued.anchor)?.range
-    if (queued?.anchor?.general || n.classList.contains('composer') && composing?.general) return 8
-    const mark = marks(n.dataset.t!)[0], anchor = mark && !hidden(mark) && mark.getClientRects().length ? figureFor(mark) || mark : mark?.closest('details:not([open])')?.querySelector('summary')
-    const embedAnchor = queued?.anchor || (n.classList.contains('composer') ? composing : scope?.threads.find(t => t.id === n.dataset.t)?.anchor)
-    const stage = embedAnchor?.embed && embedStage(embedAnchor)
-    if (stage) return Math.max(8, stage.getBoundingClientRect().top - base)
-    const composerRange = n.classList.contains('composer') && composing && rangeFromAnchor(composing)?.range
-    return Math.max(8, (n.classList.contains('composer') ? composerRange ? composerRange.getBoundingClientRect().top + scrollY : selectionTop : range ? range.getBoundingClientRect().top + scrollY : anchor ? anchor.getBoundingClientRect().top + scrollY : base + scrollY) - scrollY - base - (n.classList.contains('composer') ? 0 : 12))
-  })
-  const heights = nodes.map(n => n.offsetHeight)
-  const posted = !composing && nodes.find(n => postedClient && n.dataset.client === postedClient)
-  const pivot = nodes.findIndex(n => composing ? n.classList.contains('composer') : posted ? n === posted : n.dataset.t === focused)
-  const top = placeCards(nodes.map((n, i) => ({ want: want[i], height: n.offsetHeight })), pivot, detachedPin?.id === focused && !composing)
-  nodes.forEach((n, i) => n.style.top = `${top[i]}px`)
-  const height = nodes.length ? Math.max(...top.map((t, i) => t + heights[i])) + 20 : 0
-  cards.style.height = `${height}px`; showSelection()
 }
 function updateCount() {
   const list = navList(), i = list.findIndex(t => t.id === focused), flags = docFlags()
@@ -890,7 +1042,7 @@ function threadOnScreen(id: string) {
 function focus(id: string | null, scroll = false, openSheet = true) {
   if (id) document.dispatchEvent(new CustomEvent('scope-thread-focus', { detail: id }))
   const thread = scope?.threads.find(t => t.id === id)
-  if (thread && thread.status !== 'open' && !showResolved) return
+  if (thread && thread.status !== 'open' && !showResolved && id !== peeking) return
   if (thread && oneScreen(scope)) showChapter(thread.anchor.section)
   if (id !== focused) readingReply = thread && unread(thread) ? `${thread.id}:${thread.messages.at(-1)!.at}` : null
   postedClient = null; focused = id
@@ -1033,6 +1185,7 @@ function renderComposer() {
   if (node?.querySelector<HTMLElement>('[data-draft]')?.dataset.draft !== key) { node?.remove(); node = null }
   const flags = docFlags(), ask = flags.margin === 'Ask'
   const fresh = document.createElement('div'); fresh.className = `card composer comment on${flags.qa ? ' explainer' : ''}`; fresh.innerHTML = `<div class="head">${flags.qa ? '' : '<span class="dot comment"></span>'}<span class="who">${flags.qa ? 'You asked' : 'You commented'}</span></div><div class="reply">${composing?.rect ? `<div class="moment">Slide ${slideNumber(composing.section)} · area</div>` : ''}${composing?.t != null ? `<div class="moment">At ${moment(composing.t)}</div>` : ''}<textarea rows="2" data-draft="${esc(key)}" placeholder="${ask ? (composing?.general ? 'Ask about the whole doc' : 'Ask about this text') : composing?.general ? 'Comment on the whole doc' : composing?.rect ? 'Comment on this area' : composing?.t != null ? 'Comment on this moment' : 'Comment on this text'}">${esc(getDraft(key))}</textarea>${imageStrip(getImages(key), true, key)}<p class="error">${esc(errors.get(key))}</p><div class="actions">${attachControl}<button class="btn primary" data-action="post">${flags.margin}</button><button class="btn" data-action="cancel">Cancel</button></div></div>`
+  if (floating()) popChrome(fresh)
   if (node) refreshCard(node, fresh)
   else {
     node = fresh
@@ -1050,6 +1203,7 @@ function renderComposer() {
 }
 async function action(name: string, target: HTMLElement, imageSnapshot?: string[]) {
   if (name === 'close') { if (composing) { composing = null; closeSheet(); renderCards() } else closeSheet(); return }
+  if (name === 'close-pop') { closePop(); return }
   if (name === 'general-comment') { openGeneralComment(); return }
   if (name === 'comment') { openSelectionComment(); return }
   const id = target.closest<HTMLElement>('[data-t]')?.dataset.t, t = scope?.threads.find(t => t.id === id), key = target.closest('.composer') ? target.closest('.composer')?.querySelector<HTMLElement>('[data-draft]')?.dataset.draft || 'composer' : id!
@@ -1114,9 +1268,9 @@ async function action(name: string, target: HTMLElement, imageSnapshot?: string[
     else if (name === 'resolve') await postResolve(t.id, { decision: 'Resolved', alex_words: 'Resolved', how: 'resolve', ...pictures })
     else if (name === 'park') await postPark(t.id)
     else if (name === 'reopen') await write(`/${t.id}/reopen`, {}, t.id)
-    else if (name === 'confirm-delete') { await write(`/${t.id}/delete`, {}, t.id); closeSheet(); focused = open()[0]?.id || null }
+    else if (name === 'confirm-delete') { await write(`/${t.id}/delete`, {}, t.id); closeSheet(); focused = floating() ? null : open()[0]?.id || null }
     if (getDraft(key).trim() === text) deleteDraft(key); errors.delete(key); modes.delete(t.id); menus.delete(t.id)
-    if (!sending.has(t.id) && (['take', 'resolve', 'park'].includes(name) || name === 'send' && mode === 'else')) { closeSheet(); focused = open()[0]?.id || null }
+    if (!sending.has(t.id) && (['take', 'resolve', 'park'].includes(name) || name === 'send' && mode === 'else')) { closeSheet(); focused = floating() ? null : open()[0]?.id || null }
     renderCards()
   } catch (error) { errors.set(key, error instanceof Error ? error.message : 'Could not send') }
   finally { pending.delete(key); renderCards() }
@@ -1377,6 +1531,9 @@ document.addEventListener('click', e => {
   if (lightbox.contains(target)) return
   const shot = target.closest<HTMLButtonElement>('button.shot'); if (shot) { openZoom(shot); return }
   if (!zoom.hidden) return
+  const pinNode = target.closest<HTMLElement>('.pin[data-pin]')
+  if (pinNode) { const id = pinNode.dataset.pin!; const pinned = scope?.threads.find(t => t.id === id); peeking = pinned && pinned.status !== 'open' && !showResolved ? id : null; if (id === focused && !composing) closePop(); else { if (composing) { clearRegionDraft(); composing = null }; focus(id); seekMoment(id) }; return }
+  if (floating() && (focused || composing) && target.isConnected && !target.closest('.cards > .card, mark[data-t], .pin-nav, .menu, .add, [data-action], [data-go], dialog, .pc-bar, .pc-head, #voiceRoot, .talk') && !getSelection()?.toString()) closePop()
   const figureButton = target.closest<HTMLButtonElement>('button.fig-comment')
   if (figureButton) {
     const figure = figureButton.closest('figure')
@@ -1400,7 +1557,7 @@ $('#openLabel').onclick = () => { const list = navList(); focus(list.some(t => t
 $('#scrim').onclick = closeSheet
 $('#resolvedChip').onclick = () => { showResolved = !showResolved; storage.set('scope:showResolved', String(showResolved)); if (!showResolved && scope?.threads.find(t => t.id === focused)?.status !== 'open') focused = null; renderCards() }
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') renderCards() })
-document.addEventListener('keydown', e => { if (!zoom.hidden) return; if (e.key === 'Escape') { if (composing && (phone() || composing.general)) cancelComposer(); else closeSheet(); return }; if ((e.target as HTMLElement).closest('button,a,summary,select,textarea,input,[contenteditable]')) return; if (e.key === 'j') step(1); if (e.key === 'k') step(-1); if (e.key === 'Enter' && !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey && focused && !phone()) { e.preventDefault(); focusBox(focused) } })
+document.addEventListener('keydown', e => { if (!zoom.hidden) return; if (e.key === 'Escape') { if (e.defaultPrevented) return; if (floating() && (composing || focused)) { closePop(); return }; if (composing && (phone() || composing.general)) cancelComposer(); else closeSheet(); return }; if ((e.target as HTMLElement).closest('button,a,summary,select,textarea,input,[contenteditable]')) return; if (e.key === 'j') step(1); if (e.key === 'k') step(-1); if (e.key === 'Enter' && !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey && focused && !phone()) { e.preventDefault(); focusBox(focused) } })
 addEventListener('resize', () => { layout(); showSelection() }); document.fonts.ready.then(layout)
 // A scrollbar that comes and goes with the rail's height flips the doc width; the gate keeps that from relaying out every frame.
 let layoutFrame = 0
@@ -1408,7 +1565,7 @@ const docWidth = sizeGate<HTMLElement>(() => { cancelAnimationFrame(layoutFrame)
 docWidth.offer(doc, doc.getBoundingClientRect().width)
 new ResizeObserver(() => docWidth.offer(doc, doc.getBoundingClientRect().width)).observe(doc)
 let scrollTimer = 0
-addEventListener('scroll', () => { selectionScrolling = true; showSelection(); clearTimeout(scrollTimer); scrollTimer = window.setTimeout(() => { selectionScrolling = false; if (!zoom.hidden) return; showSelection(); if (phone() && document.body.classList.contains('sheet-open')) return; const cardRect = !phone() && focusedCard()?.getBoundingClientRect(); if (focused && (threadOnScreen(focused) || cardRect && cardRect.bottom > 0 && cardRect.top < innerHeight)) return; const next = open().find(t => threadOnScreen(t.id)); if (next) focus(next.id, false, false) }, 150) })
+addEventListener('scroll', () => { selectionScrolling = true; showSelection(); clearTimeout(scrollTimer); scrollTimer = window.setTimeout(() => { selectionScrolling = false; if (!zoom.hidden) return; showSelection(); if (phone() && document.body.classList.contains('sheet-open') || floating()) return; const cardRect = !phone() && focusedCard()?.getBoundingClientRect(); if (focused && (threadOnScreen(focused) || cardRect && cardRect.bottom > 0 && cardRect.top < innerHeight)) return; const next = open().find(t => threadOnScreen(t.id)); if (next) focus(next.id, false, false) }, 150) })
 function context() { const sections = [...doc.querySelectorAll<HTMLElement>('section[data-section]')]; const section = sections.filter(n => n.getBoundingClientRect().top <= innerHeight * .3).at(-1) || sections[0]; return { thread: focused, section: section?.id || null, selection } }
 function voiceUi(ui: ScopeVoiceUi) { if (ui.do === 'focus_thread') focus(ui.thread, true); if (ui.do === 'focus_section') document.getElementById(ui.section)?.scrollIntoView({ block: 'start', behavior: 'smooth' }); if (ui.do === 'show_resolved') { showResolved = ui.on; storage.set('scope:showResolved', String(showResolved)); renderCards() }; if (ui.do === 'scroll') scrollBy({ top: innerHeight * .8 * (ui.direction === 'up' ? -1 : 1), behavior: 'smooth' }) }
 const feedRows: (ScopeFeedLine & { at: Date })[] = []

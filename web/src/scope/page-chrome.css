@@ -18,7 +18,7 @@
 .pc-bar { background: color-mix(in srgb, var(--page) 88%, transparent); backdrop-filter: saturate(1.4) blur(14px); border-bottom: 1px solid var(--line); }
 .pc-back { width: auto; padding-inline: 8px; white-space: nowrap; }
 .pc-comments { background: var(--page); height: auto; min-height: 52px; }
-#page > .pc-head { max-width: 1180px; margin: 0 auto; padding: 32px 24px 0; display: grid; grid-template-columns: minmax(0, 720px) var(--side); justify-content: center; column-gap: 56px; }
+#page > .pc-head { max-width: 1180px; margin: 0 auto; padding: 32px 24px 0; display: grid; grid-template-columns: minmax(0, 720px); justify-content: center; column-gap: 56px; }
 .pc-head-row, .pc-description, .pc-status { grid-column: 1 / -1; }
 body.in-frame .pc-bar { display: none; }
 body.in-frame .pc-comments { top: 0; }

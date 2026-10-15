@@ -75,7 +75,7 @@ def scenario(label):
     return [
         {'wait_for': 'mark.hl[data-t="T2"]'}, {'wait': 400},
         *hook('spread'),
-        {'wait_for': '#cards .card[data-t="T12"]'}, {'wait': 600},
+        {'wait_for': '.pin[data-pin="T12"]'}, {'wait': 600},
         *open_composer(5),
         C(f'{label}: the composer opens on Later paragraph 5', "return !!document.querySelector('#cards .card.composer textarea')"),
         *typed(text),

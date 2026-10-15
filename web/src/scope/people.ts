@@ -4,7 +4,7 @@ import { esc } from './markdown.ts'
 const railsMark = '<svg class="rails-mark" viewBox="0 0 120 120" fill="currentColor" aria-hidden="true"><path d="M23.75 105H41.75L63.75 33H45.75Z"/><path d="M56.25 87H74.25L96.25 15H78.25Z"/></svg>'
 const authorKey = (person: Person) => `${person.kind}:${person.id}`
 
-function author(thread: Thread, index: number): Person {
+export function author(thread: Thread, index: number): Person {
   const message = thread.messages[index]
   return normalizePerson(message?.by) || (index === 0 ? normalizePerson(thread.by) : undefined) || (message?.from === 'alex'
     ? { kind: 'person', id: 'alex', name: 'Alex' }

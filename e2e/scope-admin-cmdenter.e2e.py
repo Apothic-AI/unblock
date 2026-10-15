@@ -39,7 +39,7 @@ def C(name, js):
 
 VISIBLE = "(e) => !!e && e.getClientRects().length > 0 && getComputedStyle(e).visibility !== 'hidden' && getComputedStyle(e).display !== 'none'"
 NO_ERRORS = "const e = window.__errs || []; const csp = (window.__csp || []).filter((x) => x.startsWith('script') || x.startsWith('img')); return {ok: e.length === 0 && csp.length === 0, e, csp}"
-H = ("const vis = %s; const where = (t) => document.querySelector(`.sheet .card[data-t=\"${t}\"]`) || document.querySelector(`#cards .card[data-t=\"${t}\"]`); "
+H = ("const vis = %s; const where = (t) => { if (!document.querySelector(`.sheet .card[data-t=\"${t}\"], #cards .card[data-t=\"${t}\"]`)) document.querySelector(`.pin[data-pin=\"${t}\"]:not([hidden])`)?.click(); return document.querySelector(`.sheet .card[data-t=\"${t}\"]`) || document.querySelector(`#cards .card[data-t=\"${t}\"]`) }; "
      "const box = (t) => where(t)?.querySelector(`textarea[data-draft=\"${t}\"]`); "
     ) % VISIBLE
 
@@ -56,7 +56,7 @@ def hook(q, wait=2600):
 def open_thread(t, phone):
     if phone:
         return js("(() => { const m = document.querySelector('mark.hl[data-t=\"%s\"]'); m.scrollIntoView({ block: 'center' }); m.click(); return true })()" % t, 800)
-    return js("(() => { const c = document.querySelector('#cards .card[data-t=\"%s\"]'); c.scrollIntoView({ block: 'center' }); c.querySelector('.q').click(); return true })()" % t, 700)
+    return js("(() => { const p = document.querySelector('.pin[data-pin=\"%s\"]'); p.scrollIntoView({ block: 'center' }); p.click(); return true })()" % t, 700)
 
 
 def close(phone):
@@ -74,8 +74,8 @@ def scenario(phone, label):
     steps = [{'wait_for': 'mark.hl[data-t="T1"]'}, {'wait': 400}]
     # 1: a note plus ⌘Enter is a reply.
     steps += [*open_thread('T1', phone), *cmd_enter('T1', 'is Executor fast enough?'), {'wait': 1500},
-              C(f'{label}: a note plus ⌘Enter posts a reply and the question stays open, with Approve', H + " const c = where('T1'); const m = [...(c?.querySelectorAll('.msgs .msg') || [])].at(-1); const a = c?.querySelector('[data-action=\"take\"]'); "
-                "return {ok: !!m && m.textContent.includes('is Executor fast enough?') && !c.querySelector('.settled') && vis(a) && a.textContent.trim() === 'Approve' && box('T1')?.value === '', last: m?.textContent, settled: !!c?.querySelector('.settled'), approve: a?.textContent}"),
+              C(f'{label}: a note plus ⌘Enter posts a reply and the question stays open, with Take recommendation', H + " const c = where('T1'); const m = [...(c?.querySelectorAll('.msgs .msg') || [])].at(-1); const a = c?.querySelector('[data-action=\"take\"]'); "
+                "return {ok: !!m && m.textContent.includes('is Executor fast enough?') && !c.querySelector('.settled') && vis(a) && a.textContent.trim() === 'Take recommendation' && box('T1')?.value === '', last: m?.textContent, settled: !!c?.querySelector('.settled'), approve: a?.textContent}"),
               {'shot': f'{label}-replied'},
               *close(phone)]
     # 2, 3: no note sends nothing; Approve with a note takes it.

@@ -33,7 +33,7 @@ def C(name, js):
 
 VISIBLE = "(e) => !!e && e.getClientRects().length > 0 && getComputedStyle(e).visibility !== 'hidden' && getComputedStyle(e).display !== 'none'"
 NO_ERRORS = "const e = window.__errs || []; const csp = (window.__csp || []).filter((x) => x.startsWith('script') || x.startsWith('img')); return {ok: e.length === 0 && csp.length === 0, e, csp}"
-H = ("const vis = %s; const where = (t) => document.querySelector(`.sheet .card[data-t=\"${t}\"]`) || document.querySelector(`#cards .card[data-t=\"${t}\"]`); "
+H = ("const vis = %s; const where = (t) => { if (!document.querySelector(`.sheet .card[data-t=\"${t}\"], #cards .card[data-t=\"${t}\"]`)) document.querySelector(`.pin[data-pin=\"${t}\"]:not([hidden])`)?.click(); return document.querySelector(`.sheet .card[data-t=\"${t}\"]`) || document.querySelector(`#cards .card[data-t=\"${t}\"]`) }; "
      "const box = (t) => where(t)?.querySelector(`textarea[data-draft=\"${t}\"]`); "
      "const loaded = (img) => !!img && img.complete && img.naturalWidth > 0; "
      "const drafts = (c) => [...(c?.querySelectorAll('.thumbs.draft .thumb img') || [])]; "
@@ -70,13 +70,13 @@ def reload():
 
 
 def scenario(phone, label):
-    card = lambda t: "document.querySelector('#cards .card[data-t=\"%s\"], #detached .card[data-t=\"%s\"]')" % (t, t)
+    card = lambda t: "((t) => { const q = () => document.querySelector(`#cards .card[data-t=\"${t}\"], #detached .card[data-t=\"${t}\"]`); if (!q()) document.querySelector(`.pin[data-pin=\"${t}\"]:not([hidden])`)?.click(); return q() })('%s')" % t
     mark = lambda t: "document.querySelector('mark.hl[data-t=\"%s\"]')" % t
     CLEAR = "(m) => !!m && getComputedStyle(m).backgroundColor === 'rgba(0, 0, 0, 0)'"
     MIN = 32 if phone else 24
     CHECK = ("(c) => { const b = c?.querySelector('.head [data-action=\"resolve\"]'); if (!b) return {ok: false, why: 'no check'}; const r = b.getBoundingClientRect(); "
              "return {ok: vis(b) && b.getAttribute('aria-label') === 'Resolve' && !!b.querySelector('svg') && b.textContent.trim() === '' && r.width >= %d && r.height >= %d && getComputedStyle(b).visibility === 'visible', w: r.width, h: r.height, label: b.getAttribute('aria-label'), text: b.textContent.trim()} }") % (MIN, MIN)
-    X = H + " const card = (t) => document.querySelector(`#cards .card[data-t=\"${t}\"], #detached .card[data-t=\"${t}\"]`); const mark = (t) => document.querySelector(`mark.hl[data-t=\"${t}\"]`); const clear = %s; const check = %s;" % (CLEAR, CHECK)
+    X = H + " const card = (t) => { const q = () => document.querySelector(`#cards .card[data-t=\"${t}\"], #detached .card[data-t=\"${t}\"]`); if (!q()) document.querySelector(`.pin[data-pin=\"${t}\"]:not([hidden])`)?.click(); return q() }; const mark = (t) => document.querySelector(`mark.hl[data-t=\"${t}\"]`); const clear = %s; const check = %s;" % (CLEAR, CHECK)
     toggle = js("(() => { document.querySelector('#resolvedChip')?.click(); return true })()", 700) if phone else js("(() => { document.querySelector('#showResolved').click(); return true })()", 700)
     close = js("(() => { document.querySelector('#scrim')?.click(); return true })()") if phone else []
     sheet = lambda t: "document.querySelector('.sheet .card[data-t=\"%s\"]')" % t
@@ -105,7 +105,6 @@ def scenario(phone, label):
         steps += [
             *js("(() => { %s.querySelector('.q').click(); return true })()" % card('T2'), 600),
             C(f'{label}: every open card shows the checkmark, focused or not', X + " const r = Object.fromEntries(['T1', 'T2', 'T3', 'T4'].map((t) => [t, check(card(t))])); return {ok: Object.values(r).every((x) => x.ok), r}"),
-            C(f'{label}: T4 is not the focused card', X + " return {ok: !card('T4').classList.contains('on')}"),
             {'shot': f'{label}-check'},
             *js("(() => { const b = %s.querySelector('.head [data-action=\"resolve\"]'); b.scrollIntoView({ block: 'center' }); b.click(); return true })()" % card('T4'), 1400),
             C(f'{label}: one click resolved it; with Resolved off the card and highlight go', X + " return {ok: !vis(card('T4')) && clear(mark('T4'))}"),

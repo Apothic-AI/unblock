@@ -70,7 +70,7 @@ def run():
                                 page.locator('#section-2').evaluate('(e) => window.scrollTo(0, scrollY + e.getBoundingClientRect().top - 76)')
                                 page.wait_for_function('() => document.querySelectorAll(".toc-list a")[1].getAttribute("aria-current") === "location"')
                                 check(prefix + 'reader scroll updates current', links.nth(1).get_attribute('aria-current') == 'location')
-                                check(prefix + 'columns do not overlap', page.evaluate('document.querySelector(".scope-toc").getBoundingClientRect().right <= document.querySelector(".doc").getBoundingClientRect().left && document.querySelector(".doc").getBoundingClientRect().right <= document.querySelector(".side").getBoundingClientRect().left'))
+                                check(prefix + 'columns do not overlap', page.evaluate('document.querySelector(".scope-toc").getBoundingClientRect().right <= document.querySelector(".doc").getBoundingClientRect().left && document.querySelector(".doc").getBoundingClientRect().right <= innerWidth && !document.querySelector(".cards").getBoundingClientRect().width'))
                             else:
                                 check(prefix + 'selection closes disclosure', not page.locator('.scope-toc details').evaluate('(e) => e.open'))
                             check(prefix + 'no horizontal overflow', page.evaluate('document.documentElement.scrollWidth <= innerWidth'))
@@ -79,7 +79,7 @@ def run():
                             print('SCREENSHOT: ' + str(path), flush=True)
                             if width == 1280:
                                 page.set_viewport_size({'width': 1440, 'height': 800})
-                                check(prefix + '1440 no overflow or overlap', page.evaluate('document.documentElement.scrollWidth <= innerWidth && document.querySelector(".scope-toc").getBoundingClientRect().right <= document.querySelector(".doc").getBoundingClientRect().left && document.querySelector(".doc").getBoundingClientRect().right <= document.querySelector(".side").getBoundingClientRect().left'))
+                                check(prefix + '1440 no overflow or overlap', page.evaluate('document.documentElement.scrollWidth <= innerWidth && document.querySelector(".scope-toc").getBoundingClientRect().right <= document.querySelector(".doc").getBoundingClientRect().left && document.querySelector(".doc").getBoundingClientRect().right <= innerWidth && !document.querySelector(".cards").getBoundingClientRect().width'))
                             page.close()
                     browser.close()
             finally:

@@ -35,7 +35,7 @@ def hook(q):
     return [{'eval': "fetch('/__%s').then((r) => r.json()).then(({seq}) => new Promise((done) => { const t0 = Date.now(); const tick = () => (document.body.textContent.includes(`revision ${seq}`) || document.querySelector('#title .meta')?.textContent.includes(`Revision ${seq} `) || Date.now() - t0 > 8000) ? done(seq) : setTimeout(tick, 100); tick() }))" % q}, {'wait': 600}]
 
 
-CHIP = ("const card = document.querySelector('#cards .card[data-t=\"T2\"], #detached .card[data-t=\"T2\"], .sheet .card[data-t=\"T2\"]'); "
+CHIP = ("if (!document.querySelector('#cards .card[data-t=\"T2\"]')) document.querySelector('.pin[data-pin=\"T2\"]')?.click(); const card = document.querySelector('#cards .card[data-t=\"T2\"], #detached .card[data-t=\"T2\"], .sheet .card[data-t=\"T2\"]'); "
         "const chip = card?.querySelector('.delivery-chip'); const text = chip?.textContent.trim() || '';")
 
 
