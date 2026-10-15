@@ -19,7 +19,7 @@ function privateThread(thread: Thread) {
 export function avatarHtml(person: Person) {
   const tint = [...person.id].reduce((hash, char) => (hash * 31 + char.codePointAt(0)!) >>> 0, 0) % 3
   const initials = person.name.trim().split(/\s+/).slice(0, 2).map(word => [...word][0]).join('').toUpperCase()
-  return `<span class="avatar tint-${tint}" role="img" aria-label="${esc(person.name)}" title="${esc(person.name)}">${person.photo_url ? `<img src="${esc(person.photo_url)}" alt="" referrerpolicy="no-referrer">` : person.kind === 'agent' ? railsMark : esc(initials)}</span>`
+  return `<span class="avatar tint-${tint}${person.kind === 'agent' ? ' agent' : ''}" role="img" aria-label="${esc(person.name)}" title="${esc(person.name)}">${person.photo_url ? `<img src="${esc(person.photo_url)}" alt="" referrerpolicy="no-referrer">` : person.kind === 'agent' ? railsMark : esc(initials)}</span>`
 }
 
 // Each message keeps its own live-update anchor, even when its author header is shared.

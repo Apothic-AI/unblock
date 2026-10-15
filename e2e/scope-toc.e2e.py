@@ -67,7 +67,7 @@ def run():
                             check(prefix + 'URL hash', page.evaluate('location.hash') == '#section-4')
                             if width >= 1200:
                                 check(prefix + 'sticky contents visible', links.nth(0).is_visible() and page.locator('.scope-toc').evaluate('(e) => e.getBoundingClientRect().top >= 0'))
-                                page.locator('#section-2').evaluate('(e) => window.scrollTo(0, scrollY + e.getBoundingClientRect().top - 76)')
+                                page.locator('#section-2').evaluate('(e) => window.scrollTo(0, scrollY + e.getBoundingClientRect().top - (document.querySelector(".pc-bar")?.getBoundingClientRect().height || 52) - 24)')
                                 page.wait_for_function('() => document.querySelectorAll(".toc-list a")[1].getAttribute("aria-current") === "location"')
                                 check(prefix + 'reader scroll updates current', links.nth(1).get_attribute('aria-current') == 'location')
                                 check(prefix + 'columns do not overlap', page.evaluate('document.querySelector(".scope-toc").getBoundingClientRect().right <= document.querySelector(".doc").getBoundingClientRect().left && document.querySelector(".doc").getBoundingClientRect().right <= innerWidth && !document.querySelector(".cards").getBoundingClientRect().width'))

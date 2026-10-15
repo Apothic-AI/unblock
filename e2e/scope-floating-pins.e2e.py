@@ -27,7 +27,7 @@ GEOMETRY = """() => {
     const marks = [...document.querySelectorAll(`mark.hl[data-t="${id}"]`)]
     const line = [...marks.at(-1).getClientRects()].filter(r => r.width > 0).at(-1)
     const pin = list[0]?.getBoundingClientRect()
-    return { id, count: list.length, dy: pin ? Math.abs((pin.top + pin.height / 2) - (line.top + line.height / 2)) : null, inMargin: pin ? pin.left >= doc.right - 1 : false }
+    return { id, count: list.length, dy: pin ? Math.abs((pin.top + pin.height / 2) - (line.top + line.height / 2)) : null, atEnd: pin ? pin.left >= line.right - 4 && pin.left <= line.right + 48 : false, inMargin: pin ? pin.left >= doc.right - 1 : false }
   })
   return { docCenter: (doc.left + doc.right) / 2, width: innerWidth, docWidth: doc.width, cards, pins, popovers: document.querySelectorAll('.cards > .card').length }
 }"""
@@ -44,8 +44,11 @@ def desktop(page, label, scheme):
     check(f'{label}: no comment column (every .cards box is 0 wide)', all(w == 0 for w in g['cards']), g['cards'])
     check(f'{label}: the doc column is centred on the page', abs(g['docCenter'] - g['width'] / 2) <= 4, g)
     check(f'{label}: nothing is open on load', g['popovers'] == 0, g['popovers'])
-    check(f'{label}: each open anchor has exactly one pin, in the margin on its line',
-          g['pins'] and all(p['count'] == 1 and p['dy'] is not None and p['dy'] <= 20 and p['inMargin'] for p in g['pins']), g['pins'])
+    check(f'{label}: each open anchor has exactly one pin on its line, at the end of the text or in the margin when the line is full',
+          g['pins'] and all(p['count'] == 1 and p['dy'] is not None and p['dy'] <= 20 and (p['atEnd'] or p['inMargin']) for p in g['pins']), g['pins'])
+    check(f'{label}: a sentence with room pins right after its text', any(p['atEnd'] and not p['inMargin'] for p in g['pins']), g['pins'])
+    fills = page.evaluate("() => [...document.querySelectorAll('.pin .avatar')].filter(a => !a.querySelector('img')).map(a => { const [r, g, b] = getComputedStyle(a).backgroundColor.match(/[\\d.]+/g).map(Number); return 0.2126 * r + 0.7152 * g + 0.0722 * b })")
+    check(f'{label}: initials sit on a properly tinted circle, not a pale one', fills and all(l < 200 for l in fills) if scheme == 'light' else bool(fills), fills)
     check(f'{label}: a comment on the title pins beside the title', page.evaluate("() => { const p = document.querySelector('.pin[data-pin=\"T3\"]:not([hidden])')?.getBoundingClientRect(), t = document.querySelector('.pc-title').getBoundingClientRect(); return !!p && p.top < t.bottom && p.bottom > t.top }"))
     page.screenshot(path=os.path.join(SHOTS, f'{label}-closed.png'))
     page.click('.pin[data-pin="T1"]')
@@ -91,6 +94,25 @@ def desktop(page, label, scheme):
     page.click(f'.cards > .card[data-t="{new}"] .menu [data-action="confirm-delete"]')
     page.wait_for_function("() => [...document.querySelectorAll('.pin:not([hidden])')].length === 4", timeout=8000)
     check(f'{label}: deleting the test comment removes its pin', True)
+    page.keyboard.press('Escape')
+    urllib.request.urlopen(f'http://127.0.0.1:{PORT}/__lane_answer?thread=T2').read()
+    urllib.request.urlopen(f'http://127.0.0.1:{PORT}/__agent_resolve?thread=T2').read()
+    page.wait_for_function("() => !document.querySelector('.pin[data-pin=\"T2\"]:not([hidden])')", timeout=8000)
+    page.wait_for_timeout(300)
+    check(f'{label}: a resolved thread with an unread reply shows no pin', page.locator('.pin:not([hidden])').count() == 3, page.locator('.pin:not([hidden])').count())
+    check(f'{label}: the header count marks the unread reply quietly', page.evaluate("() => document.querySelector('.pin-nav .pin-count').classList.contains('has-new')"))
+    page.click('.pin-nav .pin-count')
+    page.wait_for_timeout(250)
+    menu = page.locator('.pin-menu').inner_text()
+    check(f'{label}: the count menu lists the resolved reply', 'New replies on resolved' in menu, menu[:300])
+    page.screenshot(path=os.path.join(SHOTS, f'{label}-menu.png'))
+    page.keyboard.press('Escape')
+    page.mouse.click(40, 860)
+    page.mouse.wheel(0, 400)
+    page.wait_for_timeout(500)
+    bar = page.evaluate("() => document.querySelector('#page > .pc-bar').getBoundingClientRect().height")
+    check(f'{label}: the top bar collapses to 48px or less on scroll', bar <= 48, bar)
+    page.screenshot(path=os.path.join(SHOTS, f'{label}-scrolled.png'))
 
 
 def phone(page, label, scheme):
@@ -109,6 +131,11 @@ def phone(page, label, scheme):
     page.click('.sheet [data-action="close"]')
     page.wait_for_timeout(300)
     check(f'{label}: the sheet closes', not page.evaluate("() => document.body.classList.contains('sheet-open')"))
+    page.mouse.wheel(0, 400)
+    page.evaluate("() => scrollBy(0, 400)")
+    page.wait_for_timeout(500)
+    bar = page.evaluate("() => document.querySelector('#page > .pc-bar').getBoundingClientRect().height")
+    check(f'{label}: the top bar collapses to 48px or less on scroll', bar <= 48, bar)
 
 
 def run():

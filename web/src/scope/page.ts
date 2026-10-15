@@ -32,7 +32,7 @@ document.body.classList.toggle('embed', embed)
 document.body.classList.toggle('in-frame', window.parent !== window)
 const doc = $('#doc'), cards = $('#cards'), detached = $('#detached'), sheet = $('#sheet'), pins = $('#pins')
 const phone = () => matchMedia('(max-width:899px)').matches
-const floating = () => !phone() && !oneScreen(scope)
+const floating = () => !phone()
 const storage = { get(key: string) { try { return localStorage.getItem(key) } catch { return null } }, set(key: string, value: string) { try { localStorage.setItem(key, value) } catch {} }, remove(key: string) { try { localStorage.removeItem(key) } catch {} } }
 const time = (iso: string) => `${new Date(iso).toLocaleString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })} ET`
 let scope: ScopeV2 | null = null, focused: string | null = null, initialized = false
@@ -816,8 +816,7 @@ function pinHtml(t: Thread) {
 function renderPins(visible: Thread[]) {
   if (!floating()) { pins.replaceChildren(); return }
   const existing = new Map([...pins.children].map(n => [(n as HTMLElement).dataset.pin, n as HTMLElement]))
-  const shown = [...visible, ...ordered().filter(t => !visible.some(v => v.id === t.id) && unread(t))]
-  const nodes = shown.filter(t => !missing.has(t.id)).map(t => {
+  const nodes = visible.filter(t => !missing.has(t.id)).map(t => {
     let node = existing.get(t.id)
     if (!node) { node = document.createElement('button'); node.setAttribute('type', 'button'); node.dataset.pin = t.id }
     node.className = `pin ${t.kind} ${t.status}${t.id === focused ? ' on' : ''}${t.messages.length > 1 ? ' stack' : ''}`
@@ -830,7 +829,27 @@ function renderPins(visible: Thread[]) {
   replaceAround(pins, nodes)
 }
 let popPlace: { key: string; side: 'right' | 'below' | 'above'; dy: number; max: number | null } | null = null
-const margin = () => Math.min(doc.getBoundingClientRect().right + 14, innerWidth - 46)
+function anchorEl(anchor: Anchor | undefined | null, id?: string): Element | null {
+  if (!anchor) return null
+  const list = id ? [...doc.querySelectorAll<HTMLElement>(`mark[data-t="${id}"]`)].filter(m => !hidden(m) && m.getClientRects().length) : []
+  if (list.length) return list.at(-1)!
+  const range = !anchor.embed && !anchor.rect && !anchor.general ? rangeFromAnchor(anchor)?.range : null
+  const end = range?.endContainer
+  return end ? (end.nodeType === 1 ? end as Element : end.parentElement) : null
+}
+const blockOf = (el: Element | null) => el?.closest<HTMLElement>('p,li,h1,h2,h3,h4,td,th,dd,dt,figcaption,pre,blockquote,section') || null
+function viewOf(el: Element | null) {
+  let node = el?.parentElement || null
+  while (node && node !== document.body && node !== document.documentElement) {
+    if (/(auto|scroll)/.test(getComputedStyle(node).overflowY) && node.scrollHeight > node.clientHeight + 1) return node.getBoundingClientRect()
+    node = node.parentElement
+  }
+  return null
+}
+const margin = (el?: Element | null) => {
+  const right = blockOf(el || null)?.getBoundingClientRect().right || doc.getBoundingClientRect().right || innerWidth - 56
+  return Math.min(right + 10, innerWidth - 46)
+}
 const barBottom = () => Math.max(0, document.querySelector('.pc-bar')?.getBoundingClientRect().bottom || 0) + 8
 function lineOf(anchor: Anchor | undefined | null, id?: string): DOMRect | null {
   if (!anchor) return null
@@ -856,10 +875,40 @@ function lineOf(anchor: Anchor | undefined | null, id?: string): DOMRect | null 
   const section = document.getElementById(anchor.section)
   return section?.getClientRects().length ? (section.querySelector('h1,h2,h3,p') || section).getBoundingClientRect() : null
 }
-function pinSpot(anchor: Anchor, line: DOMRect, region: boolean) {
+function anchorEnd(anchor: Anchor, id?: string) {
+  const list = id ? [...doc.querySelectorAll<HTMLElement>(`mark[data-t="${id}"]`)].filter(m => !hidden(m) && m.getClientRects().length) : []
+  const r = document.createRange()
+  if (list.length) { r.setStartAfter(list.at(-1)!); return r }
+  const range = !anchor.embed && !anchor.rect && !anchor.general ? rangeFromAnchor(anchor)?.range : null
+  if (!range) return null
+  r.setStart(range.endContainer, range.endOffset)
+  return r
+}
+function lineEnd(point: Range | null, block: Element | null, line: DOMRect) {
+  if (!point || !block) return { end: line.right, full: false }
+  let end = line.right
+  const walk = document.createTreeWalker(block, NodeFilter.SHOW_TEXT)
+  for (let n = walk.nextNode() as Text | null; n; n = walk.nextNode() as Text | null) {
+    if (point.comparePoint(n, n.data.length) <= 0) continue
+    const from = n === point.startContainer ? point.startOffset : 0
+    for (let i = from; i < n.data.length; i++) {
+      if (/\s/.test(n.data[i])) continue
+      const r = document.createRange(); r.setStart(n, i); r.setEnd(n, i + 1)
+      const box = r.getBoundingClientRect()
+      if (!(box.top < line.bottom - 2 && box.bottom > line.top + 2)) return { end, full: false }
+      if (/[.,;:!?)\]"'\u2019\u201d]/.test(n.data[i]) && box.left <= end + 2) { end = box.right; continue }
+      return { end, full: box.left < end + 32 }
+    }
+  }
+  return { end, full: false }
+}
+function pinSpot(anchor: Anchor, line: DOMRect, region: boolean, el: Element | null = null, id?: string) {
   if (region) return { x: line.right - 14, y: line.top - 14, k: line.right }
-  if (anchor.embed) return { x: margin(), y: line.top + 4, k: line.right }
-  return { x: margin(), y: line.top + Math.min(line.height, 40) / 2 - 14, k: line.right }
+  if (anchor.embed) return { x: margin(el), y: line.top + 4, k: line.right }
+  const block = blockOf(el)?.getBoundingClientRect()
+  const next = lineEnd(anchorEnd(anchor, id), blockOf(el), line), end = next.end + 2
+  if (anchor.general || !block || next.full || end + 28 > block.right + 20) return { x: margin(el), y: line.top + Math.min(line.height, 40) / 2 - 14, k: line.right }
+  return { x: end, y: line.top + Math.min(line.height, 40) / 2 - 20, k: line.right }
 }
 function layoutFloating() {
   const origin = pins.getBoundingClientRect()
@@ -868,7 +917,9 @@ function layoutFloating() {
     const node = n as HTMLElement, t = scope?.threads.find(t => t.id === node.dataset.pin)
     const line = t && lineOf(t.anchor, t.id)
     if (!t || !line) return { node, spot: null }
-    return { node, spot: pinSpot(t.anchor, line, !!doc.querySelector(`mark.region[data-t="${t.id}"]`) && !t.anchor.embed) }
+    const el = anchorEl(t.anchor, t.id), view = viewOf(el)
+    if (view && (line.bottom < view.top || line.top > view.bottom)) return { node, spot: null }
+    return { node, spot: pinSpot(t.anchor, line, !!doc.querySelector(`mark.region[data-t="${t.id}"]`) && !t.anchor.embed, el, t.id) }
   }).sort((a, b) => Math.round((a.spot?.y ?? 0) - (b.spot?.y ?? 0)) || (a.spot?.k ?? 0) - (b.spot?.k ?? 0))
   for (const { node, spot } of spots) {
     node.hidden = !spot
@@ -892,7 +943,7 @@ function layoutFloating() {
     const pin = node.dataset.t ? [...pins.children].find(n => (n as HTMLElement).dataset.pin === node.dataset.t && !(n as HTMLElement).hidden) as HTMLElement | undefined : undefined
     const line = lineOf(anchor, node.dataset.t)
     let spot: DOMRect | null = pin ? pin.getBoundingClientRect() : null
-    if (!spot && line && anchor && !anchor.general) { const p = pinSpot(anchor, line, !!anchor.rect); spot = new DOMRect(p.x, p.y, 28, 28) }
+    if (!spot && line && anchor && !anchor.general) { const p = pinSpot(anchor, line, !!anchor.rect, anchorEl(anchor, node.dataset.t), node.dataset.t); spot = new DOMRect(p.x, p.y, 28, 28) }
     const w = node.offsetWidth, h = node.offsetHeight, top0 = barBottom(), bottom0 = innerHeight - 12
     if (!spot || !line) {
       if (popPlace?.key !== key) { popPlace = { key, side: 'below', dy: 0, max: null }; node.style.maxHeight = ''; node.style.left = `${innerWidth - 16 - w - base.left}px`; node.style.top = `${top0 - base.top}px` }
@@ -922,6 +973,9 @@ const pinMenu = document.createElement('div'); pinMenu.className = 'pin-menu pc-
 pinNav.append(pinMenu)
 function placePinNav() {
   const bar = document.querySelector('#page > .pc-bar'), more = bar?.querySelector('.pc-more')
+  const row = document.body.classList.contains('one-screen') ? document.querySelector('#page > .pc-head .pc-head-row') : null
+  const last = row && [...row.children].filter(n => n !== pinNav).at(-1)
+  if (row && last) { if (pinNav.nextElementSibling !== last) last.before(pinNav); pinNav.classList.remove('floating-nav'); return }
   if (bar && more) { if (pinNav.nextElementSibling !== more) more.before(pinNav) }
   else if (pinNav.parentElement !== document.body) document.body.append(pinNav)
   pinNav.classList.toggle('floating-nav', !bar)
@@ -932,13 +986,16 @@ function renderPinNav() {
   pinNav.hidden = !list.length && !resolved.length
   const count = pinNav.querySelector<HTMLButtonElement>('.pin-count')!
   count.textContent = flags.resolve ? `${list.length} open` : `${list.length} ${list.length === 1 ? 'question' : 'questions'}`
+  const fresh = resolved.some(unread)
+  count.classList.toggle('has-new', fresh); count.setAttribute('aria-label', fresh ? `${count.textContent}, new replies on resolved comments` : count.textContent)
   pinNav.querySelectorAll<HTMLButtonElement>('[data-nav]').forEach(button => { button.disabled = !list.length })
   if (!pinMenu.hidden) renderPinMenu()
 }
 function renderPinMenu() {
   const flags = docFlags(), list = navList(), resolved = flags.resolve ? ordered().filter(t => t.status !== 'open') : []
   const row = (t: Thread) => `<button type="button" class="pc-menu-item pin-row${t.id === focused ? ' on' : ''}" role="menuitem" data-open="${t.id}">${avatarHtml(author(t, 0))}<span class="pin-row-text"><span class="pin-row-q">${esc(t.messages[0]?.text)}</span><span class="pin-row-quote">${missing.has(t.id) ? 'Text changed · ' : ''}${t.anchor.general ? 'Whole doc' : esc(t.anchor.embed?.quote || t.anchor.quote)}</span></span>${unread(t) ? '<span class="unread-dot"></span>' : ''}</button>`
-  pinMenu.innerHTML = `${list.map(row).join('') || '<p class="pin-empty">Nothing open</p>'}${resolved.length ? `<label class="pc-menu-item pin-resolved"><input type="checkbox"${showResolved ? ' checked' : ''}> Show resolved (${resolved.length})</label>` : ''}`
+  const fresh = resolved.filter(unread)
+  pinMenu.innerHTML = `${list.map(row).join('') || '<p class="pin-empty">Nothing open</p>'}${fresh.length ? `<p class="pin-group">New replies on resolved</p>${fresh.map(row).join('')}` : ''}${resolved.length ? `<label class="pc-menu-item pin-resolved"><input type="checkbox"${showResolved ? ' checked' : ''}> Show resolved (${resolved.length})</label>` : ''}`
 }
 function togglePinMenu(open = pinMenu.hidden) {
   pinMenu.hidden = !open
@@ -949,7 +1006,7 @@ pinNav.addEventListener('click', e => {
   const target = e.target as HTMLElement
   if (target.closest('.pin-count')) { togglePinMenu(); return }
   const go = target.closest<HTMLElement>('[data-nav]'); if (go) { togglePinMenu(false); step(Number(go.dataset.nav)); return }
-  const row = target.closest<HTMLElement>('[data-open]'); if (row) { togglePinMenu(false); focus(row.dataset.open!, true); return }
+  const row = target.closest<HTMLElement>('[data-open]'); if (row) { const id = row.dataset.open!, thread = scope?.threads.find(t => t.id === id); togglePinMenu(false); popPlace = null; peeking = thread && thread.status !== 'open' && !showResolved ? id : null; focus(id, true); return }
 })
 pinNav.addEventListener('change', e => {
   const input = e.target as HTMLInputElement
@@ -998,7 +1055,7 @@ document.addEventListener('scope-tab-change', () => layout())
 function layout() {
   layoutShots()
   if (phone()) return
-  if (floating()) { layoutFloating(); showSelection(); return }
+  if (floating()) { if (oneScreen(scope)) fitPicture(); layoutFloating(); showSelection(); return }
   if (oneScreen(scope)) { fitPicture(); cards.style.height = ''; cards.querySelectorAll<HTMLElement>(':scope > .card').forEach(node => { node.style.top = ''; node.style.transitionProperty = '' }); showSelection(); return }
 }
 function updateCount() {
@@ -1562,7 +1619,7 @@ $('#scrim').onclick = closeSheet
 $('#resolvedChip').onclick = () => { showResolved = !showResolved; storage.set('scope:showResolved', String(showResolved)); if (!showResolved && scope?.threads.find(t => t.id === focused)?.status !== 'open') focused = null; renderCards() }
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') renderCards() })
 document.addEventListener('keydown', e => { if (!zoom.hidden) return; if (e.key === 'Escape') { if (e.defaultPrevented) return; if (floating() && (composing || focused)) { closePop(); return }; if (composing && (phone() || composing.general)) cancelComposer(); else closeSheet(); return }; if ((e.target as HTMLElement).closest('button,a,summary,select,textarea,input,[contenteditable]')) return; if (e.key === 'j') step(1); if (e.key === 'k') step(-1); if (e.key === 'Enter' && !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey && focused && !phone()) { e.preventDefault(); focusBox(focused) } })
-addEventListener('resize', () => { layout(); showSelection() }); document.fonts.ready.then(layout)
+addEventListener('resize', () => { layout(); showSelection() }); let innerScroll = 0; document.addEventListener('scroll', e => { if (e.target === document || !floating()) return; cancelAnimationFrame(innerScroll); innerScroll = requestAnimationFrame(layoutFloating) }, true); document.fonts.ready.then(layout)
 // A scrollbar that comes and goes with the rail's height flips the doc width; the gate keeps that from relaying out every frame.
 let layoutFrame = 0
 const docWidth = sizeGate<HTMLElement>(() => { cancelAnimationFrame(layoutFrame); layoutFrame = requestAnimationFrame(layout) })

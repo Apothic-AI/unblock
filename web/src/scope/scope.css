@@ -245,9 +245,12 @@ details.why p { margin-top: 6px; color: var(--tx2); font-size: 13px; }
 .chat-content { min-width: 0; overflow-wrap: anywhere; }
 .chat-row.continued .chat-content { grid-column: 2; }
 .avatar { width: 20px; height: 20px; display: inline-grid; place-items: center; border-radius: 50%; overflow: hidden; color: var(--tx); font-size: 10px; font-weight: 600; }
-.avatar.tint-0 { background: var(--accent-soft); }
-.avatar.tint-1 { background: var(--fill-2); }
-.avatar.tint-2 { background: var(--fill-3); }
+.avatar { --avatar-fill: #0071E3; background: var(--avatar-fill); color: #fff; }
+.avatar.tint-0 { --avatar-fill: #0071E3; }
+.avatar.tint-1 { --avatar-fill: #8E4EC6; }
+.avatar.tint-2 { --avatar-fill: #12A594; }
+.avatar.agent { --avatar-fill: var(--tx); color: var(--page); }
+.avatar:has(img) { background: var(--fill-2); }
 .avatar img { width: 100%; height: 100%; object-fit: cover; }
 .avatar .rails-mark { width: 17px; height: 17px; }
 .handling-chip, .alex-words { color: var(--tx2); font-size: 12px; overflow-wrap: anywhere; }
@@ -627,6 +630,8 @@ dialog.lightbox { border: 0; padding: 24px; background: var(--raised); color: va
 body.one-screen #page > .pc-bar, body.one-screen #talk, body.one-screen .open-chip { display: none; }
 body.one-screen #page > .pc-head { max-width: none; height: 64px; padding: 6px 20px; display: block; overflow: hidden; }
 body.one-screen .pc-head-row { display: flex; align-items: center; gap: 16px; }
+body.one-screen #page > .pc-head:has(.pin-nav:not([hidden])) { position: relative; z-index: 28; overflow: visible; }
+body.one-screen .pc-head-row .pin-nav { flex: none; }
 body.one-screen .pc-title { flex: 1; font-size: 21px; line-height: 26px; margin: 0; }
 body.one-screen .pc-description { margin: 3px 0 0; font-size: 16px; line-height: 22px; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 body.one-screen .overview-revision { font-size: 12px; color: var(--muted); }
@@ -805,21 +810,23 @@ body:not(.embed) > .talk { bottom: max(16px, calc(env(safe-area-inset-bottom) + 
 :root[data-doc-theme="shelf"] .chip { font-size: 13px; line-height: 18px; background: var(--surface); }
 
 @media (min-width: 900px) {
-  body:not(.one-screen) .side { position: absolute; left: 0; top: 0; width: 0; height: 0; padding: 0; z-index: 25; }
-  body:not(.one-screen) .side-head, body:not(.one-screen) #detached { display: none; }
-  body:not(.one-screen) .cards { position: static; width: 0; height: 0 !important; }
-  body:not(.one-screen) .cards > .card { width: 360px; right: auto; max-height: min(600px, calc(100dvh - 88px)); overflow: auto; overscroll-behavior: contain;
+  body.one-screen .layout { grid-template-columns: 220px minmax(0, 1fr); }
+  body.one-screen .side { overflow: visible; }
+  body:not(.index) .side { position: absolute; left: 0; top: 0; width: 0; height: 0; padding: 0; z-index: 25; }
+  body:not(.index) .side-head, body:not(.index) #detached { display: none; }
+  body:not(.index) .cards { position: static; width: 0; height: 0 !important; }
+  body:not(.index) .cards > .card { width: 360px; right: auto; max-height: min(600px, calc(100dvh - 88px)); overflow: auto; overscroll-behavior: contain;
     background: var(--raised); border: 1px solid var(--line); border-radius: 14px; padding: 12px 14px 14px; box-shadow: var(--shadow-2); cursor: default;
     animation: pop-in .14s cubic-bezier(.2, .8, .2, 1); }
-  body:not(.one-screen) .cards > .card.on { background: var(--raised); border-color: var(--line); }
-  body:not(.one-screen) .cards > .card .head .when { display: none; }
-  body:not(.one-screen) .cards > .card .head { flex-wrap: nowrap; min-width: 0; }
-  body:not(.one-screen) .cards > .card .head:has(.new-reply) .kind { margin-right: 0; }
-  body:not(.one-screen) .cards > .card .head .kind { margin-right: auto; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-  body:not(.one-screen) .cards > .card .head .new-reply { flex: none; margin-right: auto; width: 8px; height: 8px; border-radius: 50%; background: var(--ac); font-size: 0; overflow: hidden; }
+  body:not(.index) .cards > .card.on { background: var(--raised); border-color: var(--line); }
+  body:not(.index) .cards > .card .head .when { display: none; }
+  body:not(.index) .cards > .card .head { flex-wrap: nowrap; min-width: 0; }
+  body:not(.index) .cards > .card .head:has(.new-reply) .kind { margin-right: 0; }
+  body:not(.index) .cards > .card .head .kind { margin-right: auto; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  body:not(.index) .cards > .card .head .new-reply { flex: none; margin-right: auto; width: 8px; height: 8px; border-radius: 50%; background: var(--ac); font-size: 0; overflow: hidden; }
 }
 @keyframes pop-in { from { opacity: 0; transform: translateY(-4px) scale(.98); } }
-@media (prefers-reduced-motion: reduce) { body:not(.one-screen) .cards > .card { animation: none; } }
+@media (prefers-reduced-motion: reduce) { body:not(.index) .cards > .card { animation: none; } }
 .pins { position: absolute; left: 0; top: 0; width: 0; height: 0; }
 .pin { position: absolute; display: inline-flex; align-items: center; height: 28px; min-width: 28px; padding: 2px; border: 0; border-radius: var(--radius-pill, 999px);
   background: var(--raised); color: var(--tx); box-shadow: var(--shadow-1); transition: box-shadow .14s, transform .14s, opacity .14s; }
@@ -860,3 +867,7 @@ body:not(.embed) > .talk { bottom: max(16px, calc(env(safe-area-inset-bottom) + 
 .rec-take .pick-hint { font-size: 12.5px; }
 .reply > .error:empty, .reply > .thumbs.draft:empty { display: none; }
 @media (max-width: 599px) { #page > .pc-bar .pc-bar-title { display: none; } }
+#page > .pc-bar { z-index: 28; transition: height .18s ease; }
+#page > .pc-bar[data-scrolled="true"] { height: 44px; }
+.pin-nav .pin-count.has-new::after { content: ""; display: inline-block; width: 6px; height: 6px; margin-left: 6px; vertical-align: middle; border-radius: 50%; background: var(--ac); }
+.pin-group { margin: 6px 0 0; padding: 8px 10px 2px; border-top: 1px solid var(--line); font-size: 12px; color: var(--tx2); }
