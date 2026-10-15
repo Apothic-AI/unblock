@@ -134,5 +134,16 @@ test('lane writes are unslopped before they land; Alex is never checked', async 
     const bash = await cli('scope', 'ask', 'demo', '--section', 'plan', '--quote', 'We ship the page first', '--rec', 'Page first', 'Should we leverage it?')
     assert.equal(bash.status, 2)
     assert.match(bash.stderr, /leverage/)
+
+    const stills = Array.from({ length: 7 }, (_, i) => `![Step ${i}](shot-${i}.png)`).join('\n\n')
+    writeFileSync(join(work, 'doc.md'), `# Demo scope\n\nA small page.\n\n## The walk {#walk}\n\nThe run finished at 02:29Z.\n\n${stills}\n`)
+    const busy = await cli('scope', 'lint', 'demo', '--from', join(work, 'doc.md'))
+    assert.equal(busy.status, 0, busy.stderr)
+    assert.match(busy.stderr, /7 inline stills/)
+    assert.match(busy.stderr, /§walk: UTC time "02:29Z"/)
+    writeFileSync(join(work, 'doc.md'), `# Demo scope\n\nA small page.\n\n## The walk {#walk}\n\nThe run finished at 10:29 PM ET.\n\n![Step](shot.png)\n`)
+    const calm = await cli('scope', 'lint', 'demo', '--from', join(work, 'doc.md'))
+    assert.equal(calm.status, 0, calm.stderr)
+    assert.doesNotMatch(calm.stderr, /stills|UTC/)
   } finally { await h.close() }
 })

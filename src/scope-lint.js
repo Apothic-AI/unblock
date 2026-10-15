@@ -1,4 +1,5 @@
 import { AGENTISH_HEADING } from './scope-doc.js'
+import { IMAGE_LINE } from './scope-assets.js'
 const rules = [
   ['ai-word', /\b(?:additionally|crucial|delve|enduring|enhance[sd]?|fostering|garner|interplay|intricate|pivotal|showcase[sd]?|tapestry|testament|underscore[sd]?|vibrant)\b/gi, 'a plain word, or cut it'],
   ['is', /\b(?:serves as|stands as|boasts)\b/gi, 'say "is" or "has"'],
@@ -71,9 +72,35 @@ export function lintDoc(sections, { keep = [] } = {}) {
     const body = prose(section.body_md).split('\n').filter((line) => !/^\s*(?:#{1,6}\s|Figure:|\||>\s*\[!)/i.test(line)).join('\n')
     const count = body.trim() ? body.trim().split(/\s+/).length : 0
     if (count > 120) warnings.push({ section: section.id, rule: 'words', count, limit: 120 })
+    const utc = [...prose(`${section.heading ?? ''}\n${section.body_md ?? ''}`).matchAll(UTC_TIME)].map((match) => match[0].trim())
+    if (utc.length) warnings.push({ section: section.id, rule: 'utc', matches: utc })
     if (section.id !== 'title' && section.audience === undefined && AGENTISH_HEADING.test(String(section.heading ?? ''))) warnings.push({ section: section.id, rule: 'audience', heading: section.heading })
   }
   return { findings, warnings }
+}
+
+const UTC_TIME = /\b(?:\d{4}-\d{2}-\d{2}T)?\d{1,2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|\s?(?:UTC|GMT)\b)/g
+const SCREEN_FILE = /\.(?:html?|mock)$/i
+const STILL_FILE = /\.(?:png|jpe?g|webp|gif|svg)$/i
+
+export function docWarnings(sections, { screens = 6, stills = 6 } = {}) {
+  let screenCount = 0, stillCount = 0
+  for (const section of sections ?? []) {
+    let fence = null
+    for (const line of String(section?.body_md ?? '').split('\n')) {
+      const marker = line.match(/^\s*(`{3,}|~{3,})\s*(\w*)/)
+      if (fence) { if (marker && marker[1][0] === fence[0] && !marker[2]) fence = null; continue }
+      if (marker) { fence = marker[1]; if (/^(?:demo|video)$/.test(marker[2])) screenCount++; continue }
+      const image = line.match(IMAGE_LINE)
+      if (!image) continue
+      if (SCREEN_FILE.test(image[2])) screenCount++
+      else if (STILL_FILE.test(image[2])) stillCount++
+    }
+  }
+  const warnings = []
+  if (screenCount > screens) warnings.push({ rule: 'screens', count: screenCount, limit: screens })
+  if (stillCount > stills) warnings.push({ rule: 'stills', count: stillCount, limit: stills })
+  return warnings
 }
 
 // Keep the first spelling while treating repeated terms as the same name.

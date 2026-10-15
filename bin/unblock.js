@@ -10,7 +10,7 @@ import { readdirSync, mkdirSync, mkdtempSync, rmSync, writeFileSync, readFileSyn
 import { latencySince, scopeLatency } from '../src/scope-latency.js'
 import { IMAGE_LINE } from '../src/scope-assets.js'
 import { filerPid, laneIdentity } from '../src/origin-process.js'
-import { lintDoc, mergeKeep, newFindings } from '../src/scope-lint.js'
+import { docWarnings, lintDoc, mergeKeep, newFindings } from '../src/scope-lint.js'
 
 import { daemon, authToken, stateDir } from '../plugin/paths.js'
 import { SecretStore } from '../src/secrets.js'
@@ -76,7 +76,14 @@ function wrap(text, width = 80, prefix = '') {
 
 function lintOutput({ findings = [], warnings = [] }) {
   for (const finding of findings) console.error(`${finding.section ? `§${finding.section}` : finding.field} ${finding.rule}: "${finding.match}" -> ${finding.hint}`)
-  for (const warning of warnings) console.error(warning.rule === 'audience' ? `§${warning.section}: "${warning.heading}" reads like agent detail. Mark it {#${warning.section} audience=agents} so Alex sees it folded, or audience=everyone to keep it open.` : `§${warning.section}: ${warning.count} words (limit 120). Say it with a picture or cut it.`)
+  const say = {
+    audience: (w) => `§${w.section}: "${w.heading}" reads like agent detail. Mark it {#${w.section} audience=agents} so Alex sees it folded, or audience=everyone to keep it open.`,
+    words: (w) => `§${w.section}: ${w.count} words (limit 120). Say it with a picture or cut it.`,
+    utc: (w) => `§${w.section}: UTC time ${w.matches.map((m) => `"${m}"`).join(', ')}. Alex reads ET; write the time in ET.`,
+    screens: (w) => `warning: ${w.count} screens in the doc (limit ${w.limit}). Show the few that carry the decision.`,
+    stills: (w) => `warning: ${w.count} inline stills in the doc (limit ${w.limit}). Keep the ones that carry the decision.`,
+  }
+  for (const warning of warnings) console.error((say[warning.rule] ?? say.words)(warning))
   if (findings.length) {
     console.error('Run /unslop over the doc (or fix these) and publish again. Keep a real name with --keep "<term>".')
     process.exit(2)
@@ -960,6 +967,7 @@ async function scope(args, mode = 'scope') {
     } catch (error) { fail(error.message) }
     if (verb === 'lint') {
       let sections = Array.isArray(doc) ? doc : doc.sections
+      const wholeDoc = sections
       let stored = [], keep = opts['--keep'] ?? []
       try {
         const base = await daemon({ start: false }), token = authToken()
@@ -990,6 +998,7 @@ async function scope(args, mode = 'scope') {
       }
       // Word hints never change the existing lint result or approval behavior.
       const result = lintDoc(sections, { keep })
+      result.warnings.push(...docWarnings(wholeDoc))
       result.findings = newFindings(result.findings, stored)
       lintOutput(result)
       return output(result, 'No unslop findings.')

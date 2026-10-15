@@ -5,7 +5,7 @@ import { isAbsolute, join } from 'node:path'
 
 import { promptPane, remoteScopeHost, scopePostCommand } from './pane-notice.js'
 import { appendApprovalIndex, approvedBy, moveTabToInflight } from './scope-approvals.js'
-import { lintDoc, lintText, mergeKeep, newFindings } from './scope-lint.js'
+import { docWarnings, lintDoc, lintText, mergeKeep, newFindings } from './scope-lint.js'
 import { buildDocError, buildFences } from './scope-build.js'
 import { ASSET_ID, readAsset, readAssetBody, assetLimit, storeAsset, serveAsset, docAssets } from './scope-assets.js'
 import { normalizeAnchor, rectLabel, quoteSnippet, locateAnchor, hasEmbedFence } from './scope-anchor.js'
@@ -1465,7 +1465,7 @@ export function createScopeRoutes({ store, webRoot, sendJson, sendText, readJson
       else if (!docWrite) lintSource(body, '')
       if (docWrite) lint.findings = newFindings(lint.findings, storedSections)
       if (lint.findings.length) return { error: 'unslop', findings: lint.findings }
-      if (docWrite) result.warnings = lint.warnings
+      if (docWrite) result.warnings = [...lint.warnings, ...docWarnings(body.sections)]
     }
     if (body.keep !== undefined) scope.keep = mergeKeep(scope.keep ?? [], body.keep)
     scope.updated_at = at
