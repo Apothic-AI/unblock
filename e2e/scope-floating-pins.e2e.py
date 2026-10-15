@@ -60,6 +60,13 @@ def desktop(page, label, scheme):
     page.keyboard.press('Escape')
     page.wait_for_timeout(250)
     check(f'{label}: Escape closes it', pop(page) is None)
+    for tid in ('T1', 'T4'):
+        page.click(f'.pin[data-pin="{tid}"]')
+        page.wait_for_timeout(400)
+        clear = page.evaluate("(id) => { const c = document.querySelector('.cards > .card')?.getBoundingClientRect(); return !!c && [...document.querySelectorAll(`mark.hl[data-t=\"${id}\"]`)].flatMap(m => [...m.getClientRects()]).every(r => r.right <= c.left || r.left >= c.right || r.bottom <= c.top || r.top >= c.bottom) }", tid)
+        check(f'{label}: the {tid} popover leaves its sentence readable', clear)
+        page.keyboard.press('Escape')
+        page.wait_for_timeout(250)
     page.click('.pin[data-pin="T2"]')
     page.wait_for_timeout(300)
     check(f'{label}: a comment pin opens its own thread', (pop(page) or {}).get('t') == 'T2')

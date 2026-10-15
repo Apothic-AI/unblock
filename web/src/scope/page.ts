@@ -951,12 +951,15 @@ function layoutFloating() {
     }
     if (popPlace?.key !== key) {
       const shift = spot.top >= top0 && spot.bottom <= bottom0 ? 0 : innerHeight / 2 - spot.top
-      const pTop = spot.top + shift, lTop = line.top + shift, lBottom = line.bottom + shift
+      const marksOf = node.dataset.t ? [...doc.querySelectorAll<HTMLElement>(`mark[data-t="${node.dataset.t}"]`)].flatMap(m => [...m.getClientRects()]).filter(r => r.width > 0) : []
+      const firstTop = Math.min(line.top, ...marksOf.map(r => r.top))
+      const textRight = blockOf(anchorEl(anchor, node.dataset.t))?.getBoundingClientRect().right ?? 0
+      const pTop = spot.top + shift, lTop = firstTop + shift, lBottom = line.bottom + shift
       let side: 'right' | 'below' | 'above', top: number, max: number | null = null
       const below = bottom0 - lBottom - 8, above = lTop - 8 - top0
       node.style.maxHeight = ''
       const full = node.offsetHeight
-      if (spot.right + 10 + w <= innerWidth - 16) { side = 'right'; top = Math.max(top0, Math.min(pTop - 8, bottom0 - full)) }
+      if (spot.left >= textRight - 1 && spot.right + 10 + w <= innerWidth - 16) { side = 'right'; top = Math.max(top0, Math.min(pTop - 8, bottom0 - full)) }
       else if (full <= below || below >= above) { side = 'below'; top = lBottom + 8; if (full > below) max = Math.max(240, below) }
       else { side = 'above'; if (full > above) max = Math.max(240, above); top = lTop - 8 - Math.min(full, max ?? full) }
       popPlace = { key, side, dy: top - pTop, max }
