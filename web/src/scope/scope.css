@@ -813,7 +813,10 @@ body:not(.embed) > .talk { bottom: max(16px, calc(env(safe-area-inset-bottom) + 
     animation: pop-in .14s cubic-bezier(.2, .8, .2, 1); }
   body:not(.one-screen) .cards > .card.on { background: var(--raised); border-color: var(--line); }
   body:not(.one-screen) .cards > .card .head .when { display: none; }
-  body:not(.one-screen) .cards > .card .head .kind { margin-right: auto; }
+  body:not(.one-screen) .cards > .card .head { flex-wrap: nowrap; min-width: 0; }
+  body:not(.one-screen) .cards > .card .head:has(.new-reply) .kind { margin-right: 0; }
+  body:not(.one-screen) .cards > .card .head .kind { margin-right: auto; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  body:not(.one-screen) .cards > .card .head .new-reply { flex: none; margin-right: auto; width: 8px; height: 8px; border-radius: 50%; background: var(--ac); font-size: 0; overflow: hidden; }
 }
 @keyframes pop-in { from { opacity: 0; transform: translateY(-4px) scale(.98); } }
 @media (prefers-reduced-motion: reduce) { body:not(.one-screen) .cards > .card { animation: none; } }

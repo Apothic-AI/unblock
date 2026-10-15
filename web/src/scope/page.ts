@@ -829,7 +829,7 @@ function renderPins(visible: Thread[]) {
   })
   replaceAround(pins, nodes)
 }
-let popPlace: { key: string; side: 'right' | 'below' | 'above'; dy: number } | null = null
+let popPlace: { key: string; side: 'right' | 'below' | 'above'; dy: number; max: number | null } | null = null
 const margin = () => Math.min(doc.getBoundingClientRect().right + 14, innerWidth - 46)
 const barBottom = () => Math.max(0, document.querySelector('.pc-bar')?.getBoundingClientRect().bottom || 0) + 8
 function lineOf(anchor: Anchor | undefined | null, id?: string): DOMRect | null {
@@ -895,18 +895,22 @@ function layoutFloating() {
     if (!spot && line && anchor && !anchor.general) { const p = pinSpot(anchor, line, !!anchor.rect); spot = new DOMRect(p.x, p.y, 28, 28) }
     const w = node.offsetWidth, h = node.offsetHeight, top0 = barBottom(), bottom0 = innerHeight - 12
     if (!spot || !line) {
-      if (popPlace?.key !== key) { popPlace = { key, side: 'below', dy: 0 }; node.style.left = `${innerWidth - 16 - w - base.left}px`; node.style.top = `${top0 - base.top}px` }
+      if (popPlace?.key !== key) { popPlace = { key, side: 'below', dy: 0, max: null }; node.style.maxHeight = ''; node.style.left = `${innerWidth - 16 - w - base.left}px`; node.style.top = `${top0 - base.top}px` }
       continue
     }
     if (popPlace?.key !== key) {
       const shift = spot.top >= top0 && spot.bottom <= bottom0 ? 0 : innerHeight / 2 - spot.top
       const pTop = spot.top + shift, lTop = line.top + shift, lBottom = line.bottom + shift
-      let side: 'right' | 'below' | 'above', top: number
-      if (spot.right + 10 + w <= innerWidth - 16) { side = 'right'; top = Math.max(top0, Math.min(pTop - 8, bottom0 - h)) }
-      else if (lBottom + 8 + h <= bottom0 || lTop - 8 - h < top0) { side = 'below'; top = Math.max(top0, Math.min(lBottom + 8, bottom0 - h)) }
-      else { side = 'above'; top = lTop - 8 - h }
-      popPlace = { key, side, dy: top - pTop }
+      let side: 'right' | 'below' | 'above', top: number, max: number | null = null
+      const below = bottom0 - lBottom - 8, above = lTop - 8 - top0
+      node.style.maxHeight = ''
+      const full = node.offsetHeight
+      if (spot.right + 10 + w <= innerWidth - 16) { side = 'right'; top = Math.max(top0, Math.min(pTop - 8, bottom0 - full)) }
+      else if (full <= below || below >= above) { side = 'below'; top = lBottom + 8; if (full > below) max = Math.max(240, below) }
+      else { side = 'above'; if (full > above) max = Math.max(240, above); top = lTop - 8 - Math.min(full, max ?? full) }
+      popPlace = { key, side, dy: top - pTop, max }
     }
+    node.style.maxHeight = popPlace.max ? `${popPlace.max}px` : ''
     const left = popPlace.side === 'right' ? spot.right + 10 : Math.max(16, Math.min(spot.right - w, innerWidth - 16 - w))
     node.style.left = `${left - base.left}px`; node.style.top = `${spot.top + popPlace.dy - base.top}px`
   }
