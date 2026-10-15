@@ -13,7 +13,7 @@ function records(nodes: Element[]) {
   if (headings) return headings
   const rows = all('tbody tr').length
   if (rows) return rows
-  const slices = all('pre').reduce((sum, pre) => sum + (pre.textContent || '').split('\n').filter(line => /^[A-Z]{1,3}\d+\b/.test(line)).length, 0)
+  const slices = all('pre').reduce((sum, pre) => sum + (pre.textContent || '').split('\n').filter(line => /^(?:[A-Z]{0,3}\d+[a-z]?|[A-Z][a-z]+)\s{2,}\S/.test(line)).length, 0)
   if (slices) return slices
   const items = all('li').length
   return items || nodes.length
@@ -64,10 +64,12 @@ function splitTable(wrap: Element, index: number, sectionId: string, slug: strin
     })
     body.append(tr)
   }
-  const label = agent.map(i => plain(head[i])).join(' and ')
+  const label = agent.map((i, n) => n ? plain(head[i]).toLowerCase() : plain(head[i])).join(' and ')
   for (const i of [...agent].reverse()) head[i].remove()
-  const { details, content } = fold(label, rows.length, `${sectionId}/table-${index}`, slug, onToggle, 'sub')
   const detailWrap = document.createElement('div'); detailWrap.className = 'table-wrap'; detailWrap.append(detail)
+  const outer = wrap.parentElement?.closest<HTMLElement>('details.agents-fold')
+  if (outer) { wrap.before(detailWrap); outer.before(wrap); return }
+  const { details, content } = fold(label, rows.length, `${sectionId}/table-${index}`, slug, onToggle, 'sub')
   content.append(detailWrap)
   wrap.after(details)
 }
@@ -83,7 +85,6 @@ export function foldAgents(section: HTMLElement, s: DocSection, slug: string, on
     content.append(body)
     return
   }
-  body.querySelectorAll(':scope > .table-wrap').forEach((wrap, index) => splitTable(wrap, index, s.id, slug, onToggle))
   const children = [...body.children]
   for (let i = 0; i < children.length; i++) {
     const heading = children[i]
@@ -98,6 +99,7 @@ export function foldAgents(section: HTMLElement, s: DocSection, slug: string, on
     content.append(...group)
     i = j - 1
   }
+  body.querySelectorAll(':scope > .table-wrap, :scope > details.agents-fold > .agents-content > .table-wrap').forEach((wrap, index) => splitTable(wrap, index, s.id, slug, onToggle))
 }
 
 export function openFoldsAround(node: Element | null) {
