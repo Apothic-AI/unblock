@@ -1,6 +1,7 @@
 import { slideSectionHtml, regionMark, attachDrawing, cropRegion } from './slides'
 import './scope.css'
 import { renderContents } from './toc'
+import { foldAgents, openFoldsAround, openFoldsWithQuestions } from './agents-fold'
 import { oneScreen, renderOverview, showChapter, fitPicture } from './overview'
 import { placeCards } from './card-layout'
 import { demoSizes, payloadKey, pollWhileVisible, sizeGate } from './loop-guards'
@@ -661,6 +662,7 @@ function render() {
       const slide = slidesOf(scope).find(slide => slide.id === s.id)
       if (slide) replacement.innerHTML = slideSectionHtml(s, { ...slide, ...scope.doc.assets?.[slide.image] }, slideNumber(s.id), id => assetUrl(id, `${endpoint}/assets`))
       const next = replacement.firstElementChild as HTMLElement
+      if (!slide) foldAgents(next, s, slug, layout)
       const stage = next.querySelector<HTMLElement>('.slide-stage')
       if (stage) attachDrawing(stage, (rect, top) => {
         clearRegionDraft()
@@ -695,7 +697,7 @@ function render() {
   sectionSignatures.clear(); for (const [id, value] of signatures) sectionSignatures.set(id, value)
   sectionContents.clear(); for (const s of scope.doc.sections) sectionContents.set(s.id, contentSignature(s))
   doc.querySelectorAll('mark.hl').forEach(mark => { const parent = mark.parentNode!; mark.replaceWith(...mark.childNodes); parent.normalize() })
-  document.title = scope.title; syncChrome(); renderOverview(scope, layout); renderContents(scope, doc, oneScreen(scope)); highlight()
+  document.title = scope.title; syncChrome(); renderOverview(scope, layout); renderContents(scope, doc, oneScreen(scope)); highlight(); openFoldsWithQuestions(doc, slug)
   if (oneScreen(scope)) { const description = document.querySelector('.pc-description'); const recommendation = doc.querySelector('#one-screen .body p'); if (description) { description.replaceChildren(...(recommendation ? [...recommendation.cloneNode(true).childNodes] : []), Object.assign(document.createElement('small'), { className: 'overview-revision', textContent: ` · revision ${scope.revision}` })) } }
   if (pin && pin.id && missing.has(pin.id) && pinnedLayoutTop != null && !composing) detachedPin = { id: pin.id, top: pinnedLayoutTop }
   syncFigureFocus(); renderCards(); renderFeed()
@@ -895,6 +897,7 @@ function focus(id: string | null, scroll = false, openSheet = true) {
   if (id) markSeen(id)
   renderCards()
   if (id && scope?.threads.some(t => t.id === id && t.status === 'open' && t.anchor.section === 'ask')) { const fold = doc.querySelector<HTMLDetailsElement>('.ask-fold'); if (fold) fold.open = true }
+  if (id) marks(id).forEach(mark => openFoldsAround(mark))
   document.querySelectorAll<HTMLElement>('.card[data-t],mark[data-t]').forEach(n => n.classList.toggle('on', n.dataset.t === id))
   syncFigureFocus()
   if (id && scroll) jumpThread(id, true)
@@ -1001,7 +1004,12 @@ document.addEventListener('touchstart', e => { const touch = e.touches[0]; if (t
 document.addEventListener('touchmove', e => { const touch = e.touches[0]; if (touch) moveHold(touch.clientX, touch.clientY) }, { passive: true })
 function focusHash() {
   const id = location.hash.match(/^#thread=(T\d+)$/)?.[1], thread = scope?.threads.find(t => t.id === id)
-  if (!thread) { if (oneScreen(scope)) showChapter(decodeURIComponent(location.hash.slice(1))); return }
+  if (!thread) {
+    const target = location.hash.length > 1 ? document.getElementById(decodeURIComponent(location.hash.slice(1))) : null
+    if (oneScreen(scope)) showChapter(decodeURIComponent(location.hash.slice(1)))
+    else if (target?.matches('section[data-section]') && openFoldsAround(target.querySelector('details.agents-fold.whole > .agents-content'))) { layout(); target.scrollIntoView({ block: 'start' }) }
+    return
+  }
   if (thread.status !== 'open' && !showResolved) return
   focus(thread.id, true)
 }

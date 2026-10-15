@@ -46,6 +46,7 @@ export function renderContents(scope: ScopeV2, doc: HTMLElement, overview: boole
       event.preventDefault(); disclosure.open = desktop.matches
       const target = document.getElementById(section.id)
       if (!target) return
+      target.querySelectorAll<HTMLDetailsElement>(':scope > details.agents-fold.whole:not([open])').forEach(details => { details.open = true })
       history.replaceState(null, '', link.hash)
       window.scrollTo({ top: window.scrollY + target.getBoundingClientRect().top - offset(), behavior: 'smooth' })
       mark(section.id)

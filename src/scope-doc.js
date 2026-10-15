@@ -15,6 +15,21 @@ export const KPI_ID = /^[a-z0-9][a-z0-9-]{0,39}$/
 export const MODEL_ALIAS = /^[a-z][a-z0-9-]{0,40}$/
 /** A per-document design system the renderer applies, e.g. 'shelf'; absent means the Rails look. */
 export const DOC_THEME = /^[a-z][a-z0-9-]{0,31}$/
+export const AUDIENCES = ['agents', 'everyone']
+export const AGENT_HEADING = /^(?:contracts?\b|files and (?:checks|tests)\b|what a workspace plugs in\b)/i
+export const AGENTISH_HEADING = /\b(?:contracts?|interfaces?|files and (?:checks|tests)|plugs? in|seams?|rel(?:y|ies) on|uses? from other|connects? to other|sandbox list)\b/i
+export function sectionAudience(section) {
+  if (AUDIENCES.includes(section?.audience)) return section.audience
+  return AGENT_HEADING.test(String(section?.heading ?? '').trim()) ? 'agents' : 'everyone'
+}
+export function carryAudience(sections, stored) {
+  if (!Array.isArray(sections)) return sections
+  return sections.map((section) => {
+    if (!object(section) || section.audience !== undefined) return section
+    const previous = stored.find((old) => old.id === section.id)
+    return previous?.audience !== undefined ? { ...section, audience: previous.audience } : section
+  })
+}
 const KPI_SOURCE = /^[a-z][a-z-]{0,31}(:[A-Za-z0-9_.:\/-]{1,64})?$/
 const KPI_KEYS = ['id', 'name', 'source', 'target', 'direction', 'window_days']
 export const APPS = ['recruiter', 'closer', 'rails-admin']
@@ -83,7 +98,7 @@ export function orderThreads(scope) {
 }
 
 export function docToMarkdown(doc) {
-  return doc.sections.map((section, index) => `${index === 0 ? `# ${section.heading}` : `## ${section.heading} {#${section.id}}`}${section.body_md ? `\n\n${section.body_md}` : ''}`).join('\n\n')
+  return doc.sections.map((section, index) => `${index === 0 ? `# ${section.heading}` : `## ${section.heading} {#${section.id}${section.audience ? ` audience=${section.audience}` : ''}}`}${section.body_md ? `\n\n${section.body_md}` : ''}`).join('\n\n')
 }
 
 export function docFromMarkdown(md) {
@@ -92,13 +107,13 @@ export function docFromMarkdown(md) {
   for (const line of String(md).split('\n')) {
     if (/^\s*```/.test(line)) fenced = !fenced
     const title = !fenced && line.match(/^# (.+?)(?:\s+\{#([^}]+)\})?\s*$/)
-    const heading = !fenced && line.match(/^## (.+?)(?:\s+\{#([^}]+)\})?\s*$/)
+    const heading = !fenced && line.match(/^## (.+?)(?:\s+\{(?:#([a-z][a-z0-9-]*))?\s*(?:audience=(agents|everyone))?\s*\})?\s*$/)
     if (!sections.length) {
       if (heading) throw new Error('the doc needs a "# Title" first line')
       if (title) sections.push({ id: 'title', heading: title[1].trim(), body_md: '' })
       continue
     }
-    if (heading) sections.push({ id: uniqueId(heading[2] ?? slugify(heading[1]), used), heading: heading[1].trim(), body_md: '' })
+    if (heading) sections.push({ id: uniqueId(heading[2] ?? slugify(heading[1]), used), heading: heading[1].trim(), body_md: '', ...(heading[3] ? { audience: heading[3] } : {}) })
     else sections.at(-1).body_md += `${line}\n`
   }
   if (!sections.length) throw new Error('the doc needs a "# Title" first line')
@@ -217,6 +232,7 @@ export function validateScope(scope) {
       ids.add(section.id)
       check(typeof section.heading === 'string' && section.heading.trim().length > 0 && section.heading.length <= 200, 'invalid section heading')
       check(typeof section.body_md === 'string' && section.body_md.length <= 200000, 'invalid section body')
+      if (section.audience !== undefined) check(AUDIENCES.includes(section.audience), 'invalid section audience')
     }
   }
   if (scope.doc?.assets !== undefined) {

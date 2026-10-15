@@ -94,6 +94,15 @@ code { font: 13.5px var(--mono); background: var(--fill-1); padding: 1px 5px; bo
 .ask-fold > summary .chevron { flex: none; transition: transform .15s; }
 .ask-fold[open] > summary .chevron { transform: rotate(90deg); }
 .ask-fold > .body { margin-top: 16px; }
+.agents-fold { min-width: 0; }
+.agents-fold > .agents-row { display: flex; align-items: center; gap: 8px; width: fit-content; max-width: 100%; padding: 4px 0; cursor: pointer; list-style: none; font: 13px/1.4 var(--font-system); color: var(--tx2); }
+.agents-fold > .agents-row::-webkit-details-marker { display: none; }
+.agents-fold > .agents-row:hover { color: var(--tx); }
+.agents-fold > .agents-row:focus-visible { outline: 2px solid var(--ac); outline-offset: 2px; border-radius: 4px; }
+.agents-fold > .agents-row span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.agents-fold > .agents-row .chevron { flex: none; transition: transform .15s; }
+.agents-fold[open] > .agents-row .chevron { transform: rotate(90deg); }
+.agents-content { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; min-width: 0; margin-top: 10px; }
 
 .quotes { list-style: none; padding: 0 !important; gap: 10px !important; }
 .quotes li { display: grid; gap: 4px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 12px; }

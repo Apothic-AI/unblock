@@ -21,6 +21,8 @@ export interface DocSection {
    * A ```svg fence may be followed at once by a ```svg phone fence: the page shows that one under 600px wide.
    */
   body_md: string
+  /** 'agents' folds the section for Alex behind one "For agents" row; absent means the heading decides (sectionAudience). */
+  audience?: 'agents' | 'everyone'
 }
 
 export interface CommentImage { id: string; width: number; height: number }
@@ -233,3 +235,9 @@ export function docToMarkdown(doc: { sections: DocSection[] }): string
 
 export interface Slide { id: string; title: string; image: string }
 export function slidesOf(scope: ScopeV2): Slide[]
+
+export const AUDIENCES: readonly ['agents', 'everyone']
+export const AGENT_HEADING: RegExp
+export const AGENTISH_HEADING: RegExp
+export function sectionAudience(section: Pick<DocSection, 'heading' | 'audience'>): 'agents' | 'everyone'
+export function carryAudience<T extends Partial<DocSection>>(sections: T[], stored: DocSection[]): T[]

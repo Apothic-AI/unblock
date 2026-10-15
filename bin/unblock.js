@@ -16,7 +16,7 @@ import { daemon, authToken, stateDir } from '../plugin/paths.js'
 import { SecretStore } from '../src/secrets.js'
 import { rectLabel, quoteSnippet } from '../src/scope-anchor.js'
 import { kindOf } from '../src/doc-kinds.js'
-import { SECTION_ID, slidesOf, docFromMarkdown, docToMarkdown, orderThreads, headingOf, THREAD_ID, APPS, validateScope, DOC_KINDS, DOC_WHERES, MODEL_ALIAS, DOC_THEME } from '../src/scope-doc.js'
+import { SECTION_ID, carryAudience, slidesOf, docFromMarkdown, docToMarkdown, orderThreads, headingOf, THREAD_ID, APPS, validateScope, DOC_KINDS, DOC_WHERES, MODEL_ALIAS, DOC_THEME } from '../src/scope-doc.js'
 import { connect as railsConnect, railsAccessToken, railsResource, railsSecretIn } from '../src/rails-auth.js'
 
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)))
@@ -76,7 +76,7 @@ function wrap(text, width = 80, prefix = '') {
 
 function lintOutput({ findings = [], warnings = [] }) {
   for (const finding of findings) console.error(`${finding.section ? `§${finding.section}` : finding.field} ${finding.rule}: "${finding.match}" -> ${finding.hint}`)
-  for (const warning of warnings) console.error(`§${warning.section}: ${warning.count} words (limit 120). Say it with a picture or cut it.`)
+  for (const warning of warnings) console.error(warning.rule === 'audience' ? `§${warning.section}: "${warning.heading}" reads like agent detail. Mark it {#${warning.section} audience=agents} so Alex sees it folded, or audience=everyone to keep it open.` : `§${warning.section}: ${warning.count} words (limit 120). Say it with a picture or cut it.`)
   if (findings.length) {
     console.error('Run /unslop over the doc (or fix these) and publish again. Keep a real name with --keep "<term>".')
     process.exit(2)
@@ -547,6 +547,7 @@ unblock scope approve <slug> --by agent --approver <pane> --reason "<why>" --ste
 unblock scope unapprove <slug> --reason "<why>"
 unblock scope publish <slug> [--where published|sent|posted|submitted] [--target "text"] [--close-open]
 unblock scope destination <slug> --where published|sent|posted|submitted [--target "text"]
+unblock scope audience <slug> <section-id> agents|everyone   agents folds the section for Alex; heading {#id audience=agents} in a doc does the same
 unblock scope app <slug> recruiter|closer|rails-admin
 unblock scope kpi <slug> set --from <file.json>
 unblock scope kpi <slug> list [--json]
@@ -740,6 +741,13 @@ async function scope(args, mode = 'scope') {
     const data = await request(`/api/scope/${encodeURIComponent(slug)}/unapprove`, { reason, ...(process.env.HERDR_PANE_ID ? { pane: process.env.HERDR_PANE_ID } : {}) })
     return output(data, `unapproved ${slug}`)
   }
+  if (sub === 'audience') {
+    if (words.includes('--json')) json = true
+    const rest = words.filter((word) => word !== '--json')
+    if (!slug || rest.length !== 2 || !SECTION_ID.test(rest[0]) || !['agents', 'everyone'].includes(rest[1])) fail(usage)
+    const data = await request(`/api/scope/${encodeURIComponent(slug)}/audience`, { section: rest[0], audience: rest[1] }, { method: 'PUT' })
+    return output(data, `§${data.section} audience ${data.audience}`)
+  }
   if (sub === 'publish' || sub === 'destination') {
     if (!slug) fail(usage)
     const opts = {}
@@ -874,9 +882,9 @@ async function scope(args, mode = 'scope') {
     let section
     try {
       const raw = readFileSync(opts['--from'], 'utf8').trim()
-      const heading = raw.match(/^#{1,3}[ \t]+(.+?)(?:[ \t]+\{#([^}]+)\})?[ \t]*(?:\r?\n|$)/)
+      const heading = raw.match(/^#{1,3}[ \t]+(.+?)(?:[ \t]+\{(?:#([a-z][a-z0-9-]*))?[ \t]*(?:audience=(agents|everyone))?[ \t]*\})?[ \t]*(?:\r?\n|$)/)
       if (heading?.[2] && heading[2] !== extra[0]) fail(`${opts['--from']} is headed {#${heading[2]}}, which names §${heading[2]}, not §${extra[0]}. Fix the id or patch §${heading[2]}.`, 1)
-      section = { body_md: (heading ? raw.slice(heading[0].length) : raw).trim(), ...(heading ? { heading: heading[1] } : {}) }
+      section = { body_md: (heading ? raw.slice(heading[0].length) : raw).trim(), ...(heading ? { heading: heading[1] } : {}), ...(heading?.[3] ? { audience: heading[3] } : {}) }
       await uploadDocImages(name, [section], opts['--from'])
     } catch (error) { fail(error.message, 1) }
     const data = await request(`/api/scope/${encodeURIComponent(name)}/sections/${encodeURIComponent(extra[0])}`, { ...section, ...(opts['--keep'] ? { keep: opts['--keep'] } : {}), ...(opts['--if-section-hash'] ? { if_section_hash: opts['--if-section-hash'] } : {}) }, { method: 'PUT' })
@@ -955,6 +963,7 @@ async function scope(args, mode = 'scope') {
           if (!response.ok) throw new Error(`HTTP ${response.status}`)
           const { scope } = await response.json()
           stored = scope.doc.sections
+          sections = carryAudience(sections, stored)
           keep = mergeKeep(scope.keep ?? [], keep)
           // Publishing turns local image refs into asset: refs, and image lines are never linted.
           const text = (md) => String(md).split('\n').filter((line) => !IMAGE_LINE.test(line)).join('\n')

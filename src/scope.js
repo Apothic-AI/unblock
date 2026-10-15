@@ -10,7 +10,7 @@ import { buildDocError, buildFences } from './scope-build.js'
 import { ASSET_ID, readAsset, readAssetBody, assetLimit, storeAsset, serveAsset, docAssets } from './scope-assets.js'
 import { normalizeAnchor, rectLabel, quoteSnippet, locateAnchor, hasEmbedFence } from './scope-anchor.js'
 import { kindOf as registeredKindOf, kindSpec as registeredKindSpec } from './doc-kinds.js'
-import { slidesOf, migrateV1, validateScope, normalizeKpis, sectionPlain, anchorInSection, headingOf, sectionHash, nextThreadId, THREAD_ID, SECTION_ID, APPS, appOf, DOC_WHERES, MODEL_ALIAS } from './scope-doc.js'
+import { slidesOf, migrateV1, validateScope, carryAudience, AUDIENCES, normalizeKpis, sectionPlain, anchorInSection, headingOf, sectionHash, nextThreadId, THREAD_ID, SECTION_ID, APPS, appOf, DOC_WHERES, MODEL_ALIAS } from './scope-doc.js'
 import { createAnswerer } from './explainer-answerer.js'
 import { createLiveItems, MAX_TEXT } from './live-items.js'
 import { handleScopeTelemetry } from './scope-telemetry.js'
@@ -679,13 +679,14 @@ export function createScopeRoutes({ store, webRoot, sendJson, sendText, readJson
     const approvalWrite = req.method === 'POST' && parts.length === 2 && action === 'approve'
     const publishWrite = req.method === 'POST' && parts.length === 2 && action === 'publish'
     const destinationWrite = req.method === 'PUT' && parts.length === 2 && action === 'destination'
+    const audienceWrite = req.method === 'PUT' && parts.length === 2 && action === 'audience'
     const shipWrite = req.method === 'POST' && parts.length === 2 && action === 'ship'
     const sectionWrite = req.method === 'PUT' && parts.length === 3 && action === 'sections'
     const docWrite = sectionWrite || (req.method === 'PUT' && parts.length === 2 && action === 'doc')
     const newThread = req.method === 'POST' && parts.length === 2 && action === 'threads'
     const batchThread = req.method === 'POST' && parts.length === 3 && action === 'threads' && threadId === 'batch'
     const threadWrite = req.method === 'POST' && parts.length === 4 && action === 'threads' && THREAD_ID.test(threadId) && ['reply', 'resolve', 'reject', 'park', 'edit', 'react', 'reopen', 'unsay', 'delete'].includes(verb)
-    if (!keepWrite && !appWrite && !answererWrite && !kpiWrite && !approvalWrite && !publishWrite && !destinationWrite && !shipWrite && !docWrite && !newThread && !batchThread && !threadWrite) return sendJson(res, 404, { error: 'not found' })
+    if (!keepWrite && !appWrite && !answererWrite && !kpiWrite && !approvalWrite && !publishWrite && !destinationWrite && !audienceWrite && !shipWrite && !docWrite && !newThread && !batchThread && !threadWrite) return sendJson(res, 404, { error: 'not found' })
     const relay = relayIdentity(req)
     const human = proxyIdentity(req) || relay
     if (batchThread && human) return sendJson(res, 403, { error: 'lanes ask through the CLI' })
@@ -699,6 +700,7 @@ export function createScopeRoutes({ store, webRoot, sendJson, sendText, readJson
     }
     if (publishWrite && human && !relay) requireHumanPath(req)
     if (destinationWrite && human) return sendJson(res, 403, { error: 'lanes set the destination through the CLI' })
+    if (audienceWrite && human) return sendJson(res, 403, { error: 'lanes set a section audience through the CLI' })
     if ((docWrite || appWrite || answererWrite || kpiWrite) && human) {
       const error = new Error('lanes rewrite the doc through the CLI')
       error.code = 'HUMAN_ONLY'; error.status = 403; throw error
@@ -729,12 +731,13 @@ export function createScopeRoutes({ store, webRoot, sendJson, sendText, readJson
       || !APPROVAL_MODES.includes(body.mode) || (body.comment !== undefined && typeof body.comment !== 'string'))) return sendJson(res, 400, { error: 'invalid approval' })
     if (verb === 'unsay' && (Object.keys(body).some((key) => !['text'].includes(key)) || typeof body.text !== 'string' || !body.text.trim())) return sendJson(res, 400, { error: 'invalid unsay' })
     if (publishWrite && (Object.keys(body).some((key) => !['revision', 'where', 'target', 'client_id', 'via', 'close_open'].includes(key)) || !Number.isInteger(body.revision) || (body.close_open !== undefined && typeof body.close_open !== 'boolean'))) return sendJson(res, 400, { error: 'invalid publish' })
+    if (audienceWrite && (Object.keys(body).some((key) => !['section', 'audience'].includes(key)) || !SECTION_ID.test(String(body.section)) || !AUDIENCES.includes(body.audience))) return sendJson(res, 400, { error: 'invalid audience' })
     if (destinationWrite && (Object.keys(body).some((key) => !['where', 'target'].includes(key)) || body.where === undefined)) return sendJson(res, 400, { error: 'invalid destination' })
     if (shipWrite && (Object.keys(body).some((key) => !['pr', 'head', 'build', 'client_id'].includes(key))
       || !Number.isSafeInteger(body.pr) || body.pr <= 0 || !Number.isSafeInteger(body.build) || body.build <= 0
       || typeof body.head !== 'string' || !/^[0-9a-f]{40}$/.test(body.head))) return sendJson(res, 400, { error: 'invalid ship' })
-    if (sectionWrite && (Object.keys(body).some((key) => !['body_md', 'heading', 'keep', 'if_section_hash'].includes(key))
-      || typeof body.body_md !== 'string' || (body.heading !== undefined && typeof body.heading !== 'string'))) return sendJson(res, 400, { error: 'invalid section patch' })
+    if (sectionWrite && (Object.keys(body).some((key) => !['body_md', 'heading', 'audience', 'keep', 'if_section_hash'].includes(key))
+      || typeof body.body_md !== 'string' || (body.heading !== undefined && typeof body.heading !== 'string') || (body.audience !== undefined && !AUDIENCES.includes(body.audience)))) return sendJson(res, 400, { error: 'invalid section patch' })
     if (body.via !== undefined && !(relay ? ['admin', 'voice'] : ['voice']).includes(body.via)) return sendJson(res, 400, { error: 'invalid via' })
     if ((relay || body.client_id !== undefined) && (typeof body.client_id !== 'string' || !CLIENT_ID.test(body.client_id))) return sendJson(res, 400, { error: 'invalid client_id' })
     if (body.keep !== undefined && (!Array.isArray(body.keep) || body.keep.length > 50 || !body.keep.every((term) => typeof term === 'string' && term.length <= 60))) return sendJson(res, 400, { error: 'invalid keep' })
@@ -745,7 +748,7 @@ export function createScopeRoutes({ store, webRoot, sendJson, sendText, readJson
     }
     const previous = writes.get(slug) ?? Promise.resolve()
     const wait = []
-    const pending = previous.catch(() => {}).then(() => changeScope(slug, { body, human, stamps, keepWrite, appWrite, answererWrite, kpiWrite, approvalWrite, publishWrite, destinationWrite, shipWrite, docWrite, sectionWrite, newThread, batchThread, threadId, verb, wait }))
+    const pending = previous.catch(() => {}).then(() => changeScope(slug, { body, human, stamps, keepWrite, appWrite, answererWrite, kpiWrite, approvalWrite, publishWrite, destinationWrite, audienceWrite, shipWrite, docWrite, sectionWrite, newThread, batchThread, threadId, verb, wait }))
     writes.set(slug, pending)
     try {
       const result = await pending
@@ -844,6 +847,20 @@ export function createScopeRoutes({ store, webRoot, sendJson, sendText, readJson
     return { version: n, revision: scope.revision, closed }
   }
 
+  function setAudience(slug, scope, body) {
+    const section = scope.doc.sections.find((s) => s.id === body.section)
+    if (!section) bad('no such section', 404)
+    section.audience = body.audience
+    const problems = validateScope(scope)
+    if (problems.length) bad(problems[0])
+    const dir = join(root, slug)
+    writeFileSync(join(dir, 'scope.json.tmp'), JSON.stringify(scope, null, 2))
+    renameSync(join(dir, 'scope.json.tmp'), join(dir, 'scope.json'))
+    const entry = listeners.get(slug)
+    if (entry) entry.meta = metadata(slug)
+    emit(slug, 'scope', { ...readScope(slug), notes: scopeNotes(slug) })
+    return { section: section.id, audience: section.audience }
+  }
   function setDestination(slug, scope, body) {
     const target = body.target
     if (!DOC_WHERES.includes(body.where)) bad('invalid where')
@@ -1096,7 +1113,7 @@ export function createScopeRoutes({ store, webRoot, sendJson, sendText, readJson
     renameSync(join(dir, 'scope.json.tmp'), join(dir, 'scope.json'))
   }
 
-  function changeScope(slug, { body, human, stamps, keepWrite, appWrite, answererWrite, kpiWrite, approvalWrite, publishWrite, destinationWrite, shipWrite, docWrite, sectionWrite, newThread, batchThread, threadId, verb, wait }) {
+  function changeScope(slug, { body, human, stamps, keepWrite, appWrite, answererWrite, kpiWrite, approvalWrite, publishWrite, destinationWrite, audienceWrite, shipWrite, docWrite, sectionWrite, newThread, batchThread, threadId, verb, wait }) {
     const dir = join(root, slug)
     let raw, disk
     try { raw = readFileSync(join(dir, 'scope.json')); disk = JSON.parse(raw) } catch { bad('scope.json is being rewritten') }
@@ -1150,6 +1167,7 @@ export function createScopeRoutes({ store, webRoot, sendJson, sendText, readJson
     if (approvalWrite) return approveScope(slug, scope, body, human)
     if (publishWrite) return publishScope(slug, scope, body, human)
     if (destinationWrite) return setDestination(slug, scope, body)
+    if (audienceWrite) return setAudience(slug, scope, body)
     if (shipWrite) return shipScope(slug, scope, body, human)
     const storedSections = scope.doc.sections
     if (sectionWrite) {
@@ -1161,9 +1179,10 @@ export function createScopeRoutes({ store, webRoot, sendJson, sendText, readJson
         if (body.if_section_hash !== sectionHash(stored)) { const error = new Error('section changed'); error.code = 'SECTION_CHANGED'; error.status = 409; throw error }
       }
       body = { sections: storedSections.map((section) => section.id === threadId
-        ? { ...section, body_md: body.body_md, ...(body.heading !== undefined ? { heading: body.heading } : {}) }
+        ? { ...section, body_md: body.body_md, ...(body.heading !== undefined ? { heading: body.heading } : {}), ...(body.audience !== undefined ? { audience: body.audience } : {}) }
         : section), ...(body.keep !== undefined ? { keep: body.keep } : {}) }
     }
+    if (docWrite) body = { ...body, sections: carryAudience(body.sections, storedSections) }
     let images = []
     if (body.images !== undefined) {
       if (!human || (!newThread && !['reply', 'reject', 'resolve'].includes(verb)) || !Array.isArray(body.images) || body.images.length > 6) bad('invalid images')

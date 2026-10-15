@@ -1,3 +1,4 @@
+import { AGENTISH_HEADING } from './scope-doc.js'
 const rules = [
   ['ai-word', /\b(?:additionally|crucial|delve|enduring|enhance[sd]?|fostering|garner|interplay|intricate|pivotal|showcase[sd]?|tapestry|testament|underscore[sd]?|vibrant)\b/gi, 'a plain word, or cut it'],
   ['is', /\b(?:serves as|stands as|boasts)\b/gi, 'say "is" or "has"'],
@@ -70,6 +71,7 @@ export function lintDoc(sections, { keep = [] } = {}) {
     const body = prose(section.body_md).split('\n').filter((line) => !/^\s*(?:#{1,6}\s|Figure:|\||>\s*\[!)/i.test(line)).join('\n')
     const count = body.trim() ? body.trim().split(/\s+/).length : 0
     if (count > 120) warnings.push({ section: section.id, rule: 'words', count, limit: 120 })
+    if (section.id !== 'title' && section.audience === undefined && AGENTISH_HEADING.test(String(section.heading ?? ''))) warnings.push({ section: section.id, rule: 'audience', heading: section.heading })
   }
   return { findings, warnings }
 }
