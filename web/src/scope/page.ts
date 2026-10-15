@@ -941,7 +941,7 @@ function showSelection() {
 function readSelection() {
   if (!zoom.hidden) return
   const selected = docSelection()
-  if (selected) { selection = selected.anchor; selectionRange = selected.range.cloneRange(); selectionTop = selected.range.getBoundingClientRect().top + scrollY; showSelection() }
+  if (selected) { const trimmed = rangeFromAnchor(selected.anchor)?.range || selected.range.cloneRange(); selection = selected.anchor; selectionRange = trimmed; selectionTop = trimmed.getBoundingClientRect().top + scrollY; showSelection() }
   else if (!selection?.embed && !document.activeElement?.closest('.card,.add')) { selection = null; selectionRange = null; showSelection() }
 }
 function openSelectionComment(anchor = selection, range = selectionRange) {

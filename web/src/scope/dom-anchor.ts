@@ -43,11 +43,12 @@ function offsets(range: Range, map: ReturnType<typeof sectionText>['map']) {
 }
 export function anchorFromRange(range: Range): Anchor | null {
   if (range.collapsed) return null
-  const a = sectionOf(range.startContainer), b = sectionOf(range.endContainer)
-  if (!a || !b || a.root !== b.root) return null
-  const { text, map } = sectionText(a.root)
+  const rootOf = (node: Node) => (node.nodeType === 1 ? node as Element : node.parentElement)?.closest<HTMLElement>('section[data-section]') || null
+  const root = rootOf(range.startContainer)
+  if (!root || root !== rootOf(range.endContainer)) return null
+  const { text, map } = sectionText(root)
   const found = offsets(range, map)
-  return found ? makeAnchor(a.section, text, found.start, found.end) : null
+  return found ? makeAnchor(root.id as AnchorSection, text, found.start, found.end) : null
 }
 export function rootFor(anchor: Anchor): HTMLElement | null {
   return anchor.section.startsWith('q:') ? document.querySelector(`#q-${CSS.escape(anchor.section.slice(2))} .q-body`) : document.getElementById(anchor.section)
