@@ -667,7 +667,7 @@ export function validateUpdate(ask, patch) {
   if (!isPlainObject(patch)) throw new ValidationError('update must be an object')
   if (patch.purpose !== undefined) throw new ValidationError('purpose cannot change', 'purpose')
   if (APPROVAL_PURPOSES.includes(ask.purpose) && ['add_fields', 'remove_fields', 'replace_fields'].some((key) => patch[key] !== undefined)) throw new ValidationError('approval fields cannot change', 'fields')
-  const named = ['closes_on', 'level', 'title', 'why', 'steps', 'links', 'tried', 'only_you', 'plan', 'spend', 'message', 'permission', 'consent_blocked_by', 'summary', 'minutes', 'after', 'blocks', 'add_fields', 'remove_fields', 'replace_fields'].filter(
+  const named = ['closes_on', 'target', 'level', 'title', 'why', 'steps', 'links', 'tried', 'only_you', 'plan', 'spend', 'message', 'permission', 'consent_blocked_by', 'summary', 'minutes', 'after', 'blocks', 'add_fields', 'remove_fields', 'replace_fields'].filter(
     (key) => patch[key] !== undefined,
   )
   if (patch.level !== undefined && !LEVELS.includes(patch.level)) {
@@ -736,11 +736,11 @@ export function validateUpdate(ask, patch) {
     steps: patch.steps ?? ask.steps,
     links: patch.links ?? ask.links,
     closes_on: patch.closes_on === undefined ? ask.closes_on : patch.closes_on,
-    target: ask.target,
+    target: patch.target ?? ask.target,
     tried: patch.tried ?? ask.tried,
     only_you: patch.only_you ?? ask.only_you,
   })
-  return { closes_on: merged.closes_on, level: merged.level, title: merged.title, why: merged.why, fields: merged.fields, steps: merged.steps, links: merged.links, tried: merged.tried, only_you: merged.only_you, plan: merged.plan, spend: merged.spend, message: merged.message, permission: merged.permission, consent_blocked_by: merged.consent_blocked_by,
+  return { closes_on: merged.closes_on, target: merged.target, level: merged.level, title: merged.title, why: merged.why, fields: merged.fields, steps: merged.steps, links: merged.links, tried: merged.tried, only_you: merged.only_you, plan: merged.plan, spend: merged.spend, message: merged.message, permission: merged.permission, consent_blocked_by: merged.consent_blocked_by,
     summary: merged.summary, minutes: merged.minutes, after: merged.after, blocks: merged.blocks }
 }
 

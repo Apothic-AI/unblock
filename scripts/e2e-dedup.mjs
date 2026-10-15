@@ -13,6 +13,8 @@ await main(async () => {
     const bundle = await daemon.api('/api/asks', { ask: ask('Bland number, ChatGPT seat', { project: 'connectors-store', purpose: 'decision', target: 'bland:number,chatgpt:test-seat' }), origin: origin(box, 'connectors-store') })
     check(bundle.status === 201, `bundle ask filed (${bundle.status})`)
     const covered = await daemon.api('/api/asks', { ask: ask('Approve an owned Bland test number', { project: 'store', target: 'bland:number' }), origin: origin(box, 'other') })
+    const retarget = await daemon.api(`/api/asks/${first.body.ticket}/update`, { target: 'resend:api-key' })
+    check(retarget.status === 200 && retarget.body.ask?.target === 'resend:api-key', `a revision sets the target (${retarget.status})`)
     check(covered.status === 409 && covered.body.ticket === bundle.body.ticket, `an ask the bundle covers returns the bundle ticket (${covered.status} ${covered.body?.ticket})`)
   } finally {
     await daemon.stop()

@@ -470,7 +470,7 @@ export class Store {
    * the record holds their work and the questions they answered must stay the
    * questions they answered.
    */
-  update(idOrTicket, { closes_on, level, title, why, fields, steps, links, tried, only_you, plan, spend, message, permission, consent_blocked_by, summary, minutes, after, blocks }) {
+  update(idOrTicket, { closes_on, target, level, title, why, fields, steps, links, tried, only_you, plan, spend, message, permission, consent_blocked_by, summary, minutes, after, blocks }) {
     const ask = this.get(idOrTicket)
     if (!ask) return null
     if (ask.status !== 'open') {
@@ -482,7 +482,7 @@ export class Store {
       throw err
     }
     const at = nowMs()
-    this.#db.prepare('UPDATE asks SET closes_on_json = ? WHERE id = ?').run(closes_on ? JSON.stringify(closes_on) : null, ask.id)
+    this.#db.prepare('UPDATE asks SET closes_on_json = ?, target = ? WHERE id = ?').run(closes_on ? JSON.stringify(closes_on) : null, target ?? ask.target ?? null, ask.id)
     this.#db
       .prepare('UPDATE asks SET level = ?, title = ?, why = ?, fields_json = ?, steps_json = ?, links_json = ?, tried_json = ?, only_you = ?, plan_json = ?, spend_json = ?, message_json = ?, consent_blocked_by = ?, summary = ?, minutes = ?, after = ?, blocks_json = ?, permission_json = ?, revision = revision + 1, updated_at = ? WHERE id = ?')
       .run(level ?? null, title, why, JSON.stringify(fields), JSON.stringify(steps), JSON.stringify(links), JSON.stringify(tried), only_you ?? null,
