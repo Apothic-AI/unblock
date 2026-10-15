@@ -576,7 +576,7 @@ unblock explain answerer <slug> --model <alias> | --clear    the margin answerer
 const scopingRoot = () => process.env.UNBLOCK_SCOPING_DIR || join(homedir(), '.agent-rails', 'scoping')
 const cropPath = (slug, id) => join(scopingRoot(), slug, 'assets', id)
 
-function scopeNew(args, usage, mode = 'scope') {
+async function scopeNew(args, usage, mode = 'scope') {
   const slugRe = /^[a-z0-9][a-z0-9-]{0,63}$/
   const paneRe = /^[A-Za-z0-9_-]+:[A-Za-z0-9_-]+$/
   let pane, app, title, kind = mode === 'explain' ? 'explainer' : undefined, answerer, parent, answererModel, theme
@@ -631,7 +631,17 @@ function scopeNew(args, usage, mode = 'scope') {
   mkdirSync(dir, { recursive: true })
   writeFileSync(join(dir, 'scope.json.tmp'), JSON.stringify(scope, null, 2))
   renameSync(join(dir, 'scope.json.tmp'), path)
+  await setTabDoc(pane, slug, heading)
   output({ slug, path }, `created ${slug} at ${path}`)
+}
+
+async function setTabDoc(pane, slug, title) {
+  try {
+    const base = await daemon({ start: false })
+    const health = await (await fetch(base + '/api/health', { signal: AbortSignal.timeout(2000) })).json()
+    const { url } = await scopeLinks(health, slug)
+    spawnSync(process.env.HERDR_BIN_PATH || 'herdr', ['tab', 'doc', 'set', '--pane', pane, url, '--title', title], { stdio: 'ignore', timeout: 5000 })
+  } catch {}
 }
 
 async function scope(args, mode = 'scope') {

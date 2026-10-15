@@ -131,3 +131,20 @@ test('a scope from scope new takes scope doc --from, and lint before the first p
     assert.equal(got.json.scope.pane, 'w5H:pT2')
   } finally { await h.close() }
 })
+
+test('scope new sets the owning pane tab review doc to the scope link', async () => {
+  const h = await startScopeHarness(v2)
+  try {
+    const made = await run(['scope', 'new', 'tab-doc', '--pane', 'w5H:pT9', '--title', 'Review me'], { ...process.env, UNBLOCK_PORT: String(h.port) })
+    assert.equal(made.status, 0, made.stderr)
+    const lines = h.paneLines().split('\n').filter((line) => line.startsWith('tab doc set'))
+    assert.deepEqual(lines, ['tab doc set --pane w5H:pT9 https://studio.example.ts.net:8797/s/tab-doc --title Review me'])
+  } finally { await h.close() }
+})
+
+test('scope new offline still writes the scope when herdr and the daemon are absent', async () => {
+  const { env, scopes } = offline()
+  const made = await run(['scope', 'new', 'quiet-doc', '--pane', 'w5H:pT8'], { ...env, HERDR_BIN_PATH: '/nonexistent/herdr' })
+  assert.equal(made.status, 0, made.stderr)
+  assert.ok(existsSync(join(scopes, 'quiet-doc', 'scope.json')))
+})
