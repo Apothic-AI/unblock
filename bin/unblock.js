@@ -632,6 +632,7 @@ async function scopeNew(args, usage, mode = 'scope') {
   writeFileSync(join(dir, 'scope.json.tmp'), JSON.stringify(scope, null, 2))
   renameSync(join(dir, 'scope.json.tmp'), path)
   await setTabDoc(pane, slug, heading)
+  spawnSync(join(homedir(), '.local/bin/comment-owner'), ['set', 'plan', slug, pane, '--name', heading, '--role', `scope ${slug}`], { stdio: 'ignore', timeout: 10000 })
   output({ slug, path }, `created ${slug} at ${path}`)
 }
 
