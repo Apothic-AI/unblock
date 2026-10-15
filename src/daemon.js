@@ -2,7 +2,7 @@ import { createHttpHandler } from './mcp.js'
 import { processStarts, sameProcess, verifiedOrigin, hasVerifiedPid } from './origin-process.js'
 import http from 'node:http'
 import { execFile } from 'node:child_process'
-import { guardedAnswerNotice, recheckNotice, originFinishedNotice, staleLaneNotice, delivered } from './pane-notice.js'
+import { guardedAnswerNotice, recheckNotice, originFinishedNotice, delivered } from './pane-notice.js'
 import { laneForAsk, laneClosed } from './lane-state.js'
 import { alexView, emergencyReason, focusGate } from './focus-gate.js'
 import { createScopeRoutes } from './scope.js'
@@ -583,12 +583,6 @@ function scrubFieldBounce(raw) {
   }
 
   async function deadReference(ask) {
-    const configuredDays = Number(process.env.UNBLOCK_STALE_LANE_DAYS)
-    const staleDays = Number.isFinite(configuredDays) && configuredDays > 0 ? configuredDays : 7
-    if (Date.now() - ask.created_at > staleDays * 86400000) {
-      const lane = laneForAsk(ask)
-      if (lane && laneClosed(lane)) return 'stale_lane_closed'
-    }
     for (const ref of ask.closes_on || []) {
       if (!ref.startsWith('probe:')) continue
       const name = ref.slice('probe:'.length)
@@ -906,7 +900,7 @@ async function answerAsk(ticket, values, reply, fieldContext, fieldBounce, revis
     }
 
     if (req.method === 'GET' && pathname === '/api/asks') {
-      if (url.searchParams.get('view') === 'alex') return sendJson(res, 200, await alexView(store))
+      if (url.searchParams.get('view') === 'alex') return sendJson(res, 200, await alexView(store, process.env, deadReference))
       const profile = url.searchParams.get('profile') || '*'
       const asks = store.list({
         profile,
@@ -918,7 +912,14 @@ async function answerAsk(ticket, values, reply, fieldContext, fieldBounce, revis
       return sendJson(res, 200, { asks, hidden: store.countHidden(profile) })
     }
 
-    let ticket = routeTicket(pathname, '/keep')
+    let ticket = routeTicket(pathname, '/restore')
+    if (ticket && req.method === 'POST') {
+      const ask = await withTicket(ticket, async () => store.restore(ticket))
+      if (!ask) return sendJson(res, 404, { error: 'not found' })
+      emitAsk(ask, ask.status); emitQueue()
+      return sendJson(res, 200, { ask })
+    }
+    ticket = routeTicket(pathname, '/keep')
     if (ticket && req.method === 'POST') {
       const body = await readJson(req)
       const ask = await withTicket(ticket, async () => {
@@ -1383,19 +1384,17 @@ async function answerAsk(ticket, values, reply, fieldContext, fieldBounce, revis
         await withTicket(candidate.ticket, async () => {
           const ask = store.get(candidate.ticket)
           if (ask?.status === 'answered') { await routeFinished(ask, starts); return }
-          if (ask?.status !== 'open') return
+          if (ask?.status !== 'open' || ask.set_aside_at != null) return
+          if (laneClosedFor(ask)) {
+            const aside = store.dropFresh(ask.ticket, `lane_closed:${laneForAsk(ask)}`)
+            if (aside.set_aside_at != null) { changed = true; emitAsk(aside, aside.status); return }
+          }
           const reason = diesWithOrigin(ask) && starts !== null && hasVerifiedPid(ask.origin) && !sameProcess(ask.origin.pid, ask.origin.pid_start, starts) ? 'origin_finished' : await deadReference(ask)
-          if (reason) {
-            const lane = reason === 'stale_lane_closed' ? laneForAsk(ask) : null
-            const note = lane ? `closed as stale: older than 7 days and lane ${lane} is closed; re-ask through unblock if it still matters` : undefined
-            const closed = store.autoClose(ask.ticket, reason, note)
+          if (reason && !store.freshnessExempt(ask, `settled:${reason}`)) {
+            const closed = store.autoClose(ask.ticket, reason)
             if (closed) {
               changed = true; emitAsk(closed, closed.status)
-              if (lane) await staleLaneNotice(closed, lane)
             }
-          } else if (!ask.set_aside_at && laneClosedFor(ask)) {
-            const aside = store.setAside(ask.ticket, `lane_closed ${laneForAsk(ask)}`)
-            changed = true; emitAsk(aside, aside.status)
           } else if (!ask.set_aside_at && ask.rechecked_at != null && Date.now() - ask.rechecked_at >= replyMs && (ask.kept_at == null || (ask.kept_at < ask.rechecked_at && Date.now() - ask.kept_at >= recheckAfterMs))) {
             const aside = store.setAside(ask.ticket, 'no_reply')
             changed = true; emitAsk(aside, aside.status)

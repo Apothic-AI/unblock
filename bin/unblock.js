@@ -328,6 +328,13 @@ async function pay(args) {
   output({ id: data.id, status: data.status }, `${data.id} · ${data.status}\nApprove the push in your Link app; then get the card with: link-cli spend-request retrieve ${data.id} --include card --output-file <path>`)
 }
 
+async function restore(args) {
+  const { rest } = flags(args, {})
+  if (rest.length !== 1) fail('usage: unblock restore <ticket>')
+  const result = await request(`/api/asks/${encodeURIComponent(rest[0])}/restore`, {})
+  output({ ask: safe(result.ask) }, `restored ${rest[0]}`)
+}
+
 async function keep(args) {
   const { rest } = flags(args, {})
   if (rest.length !== 1) fail('usage: unblock keep <ticket>')
@@ -1274,6 +1281,7 @@ unblock answer <ticket> <value>                  answer a one-question ask in on
 unblock answer <ticket> name=value ...           answer by question name
 unblock receipt <ticket> [--before a.png] [--after b.png] [--url U]
 unblock pay <ticket> [--payment-method <id>]
+unblock restore <ticket>                         restore a set-aside ask
 unblock keep <ticket>                            keep an ask in today’s queue
 unblock aside <ticket> <reason...>               hold an open ask out of today’s queue (keep brings it back)
 unblock close <ticket> <reason...>               withdraw an open ask with a one-line reason
@@ -1303,6 +1311,7 @@ try {
   else if (command === 'answer') await answer(input)
   else if (command === 'receipt') await receipt(input)
   else if (command === 'pay') await pay(input)
+  else if (command === 'restore') await restore(input)
   else if (command === 'keep') await keep(input)
   else if (command === 'aside') await aside(input)
   else if (command === 'close') await close(input)

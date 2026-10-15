@@ -63,25 +63,52 @@ export async function focusGate(body, ask, origin, env = process.env, log = cons
   }
 }
 
-export async function alexView(store, env = process.env) {
+export async function alexView(store, env = process.env, deadReference = async () => null) {
   const hidden = { not_focus: 0, aside: 0, held: 0, lane_closed: 0 }
-  const command = (env.UNBLOCK_HELD_ASKS || '').trim()
-  if (!command) return { asks: [], hidden, focus: [], error: 'no held-asks command configured' }
+  const dropped = () => store.list({ profile: '*', status: ['open'], includeAside: true })
+    .filter(ask => ask.set_aside_at != null && /^(lane_closed:|settled:|duplicate_of:)/.test(ask.set_aside_reason ?? ''))
+    .map(ask => ({ ticket: ask.ticket, title: ask.title, dropped_reason: ask.set_aside_reason }))
   try {
+    const remaining = []
+    for (const ask of store.list({ profile: '*', status: ['open'], includeAside: true })) {
+      if (ask.set_aside_at != null) continue
+      const lane = laneForAsk(ask)
+      let reason = lane && laneClosed(lane) ? `lane_closed:${lane}` : null
+      if (reason && store.freshnessExempt(ask, reason)) reason = null
+      if (!reason) {
+        const settled = await deadReference(ask)
+        if (settled) reason = `settled:${settled}`
+      }
+      if (reason) store.dropFresh(ask.ticket, reason)
+      if (store.get(ask.ticket).set_aside_at == null) remaining.push(ask)
+    }
+    const groups = new Map()
+    for (const ask of remaining.sort((a, b) => b.created_at - a.created_at || b.id.localeCompare(a.id))) {
+      const title = ask.title.toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, '').replace(/\s+/g, ' ').trim()
+      const key = JSON.stringify([ask.purpose, ask.target || title, laneForAsk(ask) || (ask.project ?? '').toLowerCase()])
+      const newest = groups.get(key)
+      if (newest) store.dropFresh(ask.ticket, `duplicate_of:${newest.ticket}`)
+      else groups.set(key, ask)
+    }
+    const command = (env.UNBLOCK_HELD_ASKS || '').trim()
+    if (!command) return { asks: [], hidden, focus: [], dropped: dropped(), error: 'no held-asks command configured' }
     const focus = new Set(((await run(command, ['in-focus'])).focus ?? []).map((key) => String(key).toLowerCase()))
     const heldRows = await run(command, ['list'])
     hidden.held = Array.isArray(heldRows) ? heldRows.length : 0
     const asks = []
     for (const ask of store.list({ profile: '*', status: ['open'], includeAside: true })) {
-      if (ask.set_aside_at != null || (ask.weekly_at != null && !((ask.kept_at ?? 0) > ask.weekly_at))) { hidden.aside += 1; continue }
+      if (ask.set_aside_at != null || (ask.weekly_at != null && !((ask.kept_at ?? 0) > ask.weekly_at))) {
+        hidden.aside += 1
+        if (ask.set_aside_reason?.startsWith('lane_closed:')) hidden.lane_closed += 1
+        continue
+      }
       const lane = laneForAsk(ask)
-      if (lane && laneClosed(lane)) { hidden.lane_closed += 1; continue }
       const keys = [...askKeys(ask, ask.origin), ...(lane ? [lane.toLowerCase()] : [])]
       if (ask.level === 'P0' || keys.some((key) => focus.has(key))) asks.push(ask)
       else hidden.not_focus += 1
     }
-    return { asks, hidden, focus: [...focus] }
+    return { asks, hidden, focus: [...focus], dropped: dropped() }
   } catch (error) {
-    return { asks: [], hidden, focus: [], error: `alex view unavailable: ${error.message}` }
+    return { asks: [], hidden, focus: [], dropped: dropped(), error: `alex view unavailable: ${error.message}` }
   }
 }

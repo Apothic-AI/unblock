@@ -251,8 +251,8 @@ export class Store {
     this.#addColumn('asks', 'recheck_unavailable_at', 'INTEGER')
     this.#addColumn('asks', 'recheck_attempted_at', 'INTEGER')
     this.#addColumn('asks', 'weekly_at', 'INTEGER')
-    for (const name of ['kept_at', 'set_aside_at', 'routed_at']) this.#addColumn('asks', name, 'INTEGER')
-    for (const name of ['closes_on_json', 'close_reason', 'set_aside_reason', 'target']) this.#addColumn('asks', name, 'TEXT')
+    for (const name of ['kept_at', 'set_aside_at', 'routed_at', 'restored_at']) this.#addColumn('asks', name, 'INTEGER')
+    for (const name of ['closes_on_json', 'close_reason', 'set_aside_reason', 'target', 'drop_history_json']) this.#addColumn('asks', name, 'TEXT')
     this.#addColumn('asks', 'reping_unavailable_at', 'INTEGER')
   }
 
@@ -592,6 +592,8 @@ export class Store {
       kept_at: row.kept_at ?? undefined,
       set_aside_at: row.set_aside_at ?? undefined,
       set_aside_reason: row.set_aside_reason ?? undefined,
+      restored_at: row.restored_at ?? undefined,
+      drop_history: JSON.parse(row.drop_history_json || '{}'),
       routed_at: row.routed_at ?? undefined,
       reping_unavailable_at: row.reping_unavailable_at ?? undefined,
       collected_at: row.collected_at ?? undefined,
@@ -941,6 +943,28 @@ export class Store {
 
   setAside(ticket, reason) {
     this.#db.prepare("UPDATE asks SET set_aside_at = ?, set_aside_reason = ? WHERE ticket = ? AND status = 'open' AND set_aside_at IS NULL").run(nowMs(), reason, ticket)
+    return this.get(ticket)
+  }
+
+  freshnessExempt(ask, reason) {
+    return ask.restored_at != null && ask.drop_history?.[reason] != null && ask.restored_at > ask.drop_history[reason]
+  }
+
+  dropFresh(ticket, reason) {
+    const ask = this.get(ticket)
+    if (!ask || ask.status !== 'open' || ask.set_aside_at != null || this.freshnessExempt(ask, reason)) return ask
+    const at = nowMs()
+    this.#db.prepare("UPDATE asks SET set_aside_at = ?, set_aside_reason = ?, drop_history_json = ? WHERE ticket = ? AND status = 'open' AND set_aside_at IS NULL")
+      .run(at, reason, JSON.stringify({ ...ask.drop_history, [reason]: at }), ticket)
+    return this.get(ticket)
+  }
+
+  restore(ticket) {
+    const ask = this.get(ticket)
+    if (!ask) return null
+    this.keep(ticket)
+    const at = Math.max(nowMs(), ...Object.values(ask.drop_history ?? {}).map(value => value + 1))
+    this.#db.prepare("UPDATE asks SET restored_at = ? WHERE ticket = ?").run(at, ticket)
     return this.get(ticket)
   }
 
