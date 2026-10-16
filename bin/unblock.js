@@ -1130,7 +1130,7 @@ async function daemonCmd(args) {
         return output({ running: false }, old ? `stopped (pid ${old})` : 'not running')
       }
     }
-    const deadline = Date.now() + 15000
+    const deadline = Date.now() + (loaded ? 45000 : 15000)
     while (Date.now() < deadline) {
       if (!loaded) {
         try { await daemon({ timeoutMs: 1500 }) } catch { /* retry until deadline */ }
