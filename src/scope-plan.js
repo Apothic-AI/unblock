@@ -48,7 +48,7 @@ function convertBody(body, counter, assets) {
   const lines = String(body).split('\n'), out = []
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i]
-    const image = line.match(/^!\[([^\]]*)\]\(asset:([0-9a-f]{16}\.(?:png|jpg|webp|gif))(?:\s+"[^"]*")?\)\s*$/)
+    const image = line.match(/^!\[([^\]]*)\]\(asset:([0-9a-f]{16}\.(?:png|jpg|webp|gif|svg|mock))(?:\s+"[^"]*")?\)\s*$/)
     if (image) {
       assets.add(image[2])
       out.push(`<MockStill id="m${++counter.n}" src="asset:${image[2]}" alt="${attr(image[1]) || 'Figure'}" caption="${attr(image[1])}" />`)

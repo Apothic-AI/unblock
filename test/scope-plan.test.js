@@ -24,6 +24,9 @@ test('a scope becomes Plan MDX: front matter, Table and Diagram blocks, prose ke
   assert.match(mdx, /<Diagram id="d\d+" caption="A box" frame="hide" renderMode="design">/)
   assert.match(mdx, /We keep one box per person\./)
   assert.doesNotMatch(mdx, /\| R1 \|/)
+  const framed = scopeToPlanMdx({ ...scope, doc: { sections: [{ id: 'title', heading: 'Framed', body_md: 'Intro.\n\n![Today opens on goals](asset:bdefdb062b3543df.mock)' }] } })
+  assert.deepEqual(framed.assets, ['bdefdb062b3543df.mock'], 'an HTML mock frame is published as its still')
+  assert.match(framed.mdx, /<MockStill id="m\d+" src="asset:bdefdb062b3543df\.mock" alt="Today opens on goals"/)
 })
 
 test('scope plan publishes to :8950/plans/, scope url prints that link, and later writes rewrite the same plan', async () => {

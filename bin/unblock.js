@@ -561,13 +561,23 @@ async function publishPlan(slug) {
   const dir = mkdtempSync(join(tmpdir(), 'unblock-plan-'))
   try {
     const base = await daemon(), token = authToken()
-    if (assets.length) mkdirSync(join(dir, 'assets'))
-    for (const id of assets) {
+    const fetchAsset = async (id) => {
       const response = await fetch(`${base}/api/scope/${encodeURIComponent(slug)}/assets/${id}`, { headers: token ? { authorization: `Bearer ${token}` } : {}, signal: AbortSignal.timeout(15000) })
       if (!response.ok) throw new Error(`asset ${id}: HTTP ${response.status}`)
-      writeFileSync(join(dir, 'assets', id), Buffer.from(await response.arrayBuffer()))
+      return Buffer.from(await response.arrayBuffer())
     }
-    writeFileSync(join(dir, 'doc.mdx'), mdx)
+    if (assets.length) mkdirSync(join(dir, 'assets'))
+    let body = mdx
+    for (const id of assets) {
+      let file = id, bytes = await fetchAsset(id)
+      if (id.endsWith('.mock')) {
+        file = JSON.parse(bytes.toString('utf8')).light
+        bytes = await fetchAsset(file)
+        body = body.replaceAll(`asset:${id}`, `asset:${file}`)
+      }
+      writeFileSync(join(dir, 'assets', file), bytes)
+    }
+    writeFileSync(join(dir, 'doc.mdx'), body)
     const record = planFor(slug)
     const asked = new Set(record?.asked ?? [])
     const questions = planQuestions(scope).filter((q) => !asked.has(q.quote))
