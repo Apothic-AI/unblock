@@ -92,20 +92,30 @@ function lintOutput({ findings = [], warnings = [] }) {
 }
 
 async function request(path, body, { start = true, method } = {}) {
-  let base
-  try { base = await daemon({ start }) } catch (error) { fail(error.message, 1) }
+  const verb = method ?? (body === undefined ? 'GET' : 'POST')
+  const deadline = Date.now() + (Number(process.env.UNBLOCK_RETRY_WINDOW_MS) || 60000)
   let response
-  try {
-    response = await fetch(base + path, {
-      method: method ?? (body === undefined ? 'GET' : 'POST'),
-      headers: {
-        ...(body === undefined ? {} : { 'content-type': 'application/json' }),
-        ...(authToken() ? { authorization: `Bearer ${authToken()}` } : {}),
-      },
-      body: body === undefined ? undefined : JSON.stringify(body),
-      signal: AbortSignal.timeout(Number(process.env.UNBLOCK_REQUEST_TIMEOUT_MS) || 15000),
-    })
-  } catch (error) { fail(error.message, 1) }
+  for (;;) {
+    let base
+    try { base = await daemon({ start }) } catch (error) { fail(error.message, 1) }
+    try {
+      response = await fetch(base + path, {
+        method: verb,
+        headers: {
+          ...(body === undefined ? {} : { 'content-type': 'application/json' }),
+          ...(authToken() ? { authorization: `Bearer ${authToken()}` } : {}),
+        },
+        body: body === undefined ? undefined : JSON.stringify(body),
+        signal: AbortSignal.timeout(Number(process.env.UNBLOCK_REQUEST_TIMEOUT_MS) || 15000),
+      })
+      break
+    } catch (error) {
+      const code = error?.cause?.code
+      const retry = code === 'ECONNREFUSED' || (verb === 'GET' && ['ECONNRESET', 'UND_ERR_SOCKET', 'EPIPE'].includes(code))
+      if (!retry || Date.now() > deadline) fail(error.message, 1)
+      await new Promise((r) => setTimeout(r, 500))
+    }
+  }
   let data
   try { data = await response.json() } catch { fail(`invalid response from queue`, 1) }
   if (!response.ok) {
