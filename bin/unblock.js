@@ -103,7 +103,7 @@ async function request(path, body, { start = true, method } = {}) {
         ...(authToken() ? { authorization: `Bearer ${authToken()}` } : {}),
       },
       body: body === undefined ? undefined : JSON.stringify(body),
-      signal: AbortSignal.timeout(5000),
+      signal: AbortSignal.timeout(Number(process.env.UNBLOCK_REQUEST_TIMEOUT_MS) || 15000),
     })
   } catch (error) { fail(error.message, 1) }
   let data

@@ -1,7 +1,7 @@
 import { createHttpHandler } from './mcp.js'
 import { processStarts, sameProcess, verifiedOrigin, hasVerifiedPid } from './origin-process.js'
 import http from 'node:http'
-import { execFile } from 'node:child_process'
+import { execFile, execFileSync } from 'node:child_process'
 import { guardedAnswerNotice, recheckNotice, originFinishedNotice, delivered } from './pane-notice.js'
 import { laneForAsk, laneClosed } from './lane-state.js'
 import { alexView, emergencyReason, focusGate } from './focus-gate.js'
@@ -1510,43 +1510,70 @@ async function answerAsk(ticket, values, reply, fieldContext, fieldBounce, revis
  *     squatter instead, because the launchd copy is the one with the
  *     canonical env (public origin, trusted proxy) and must own the port.
  */
-async function startResilient() {
+function portHolders(port, self = process.pid) {
+  let pids = []
   try {
-    return await startDaemon({})
+    pids = execFileSync('lsof', ['-nP', '-t', `-iTCP:${port}`, '-sTCP:LISTEN'], { encoding: 'utf8', timeout: 5000 })
+      .split('\n').map(Number).filter((pid) => pid > 0 && pid !== self)
+  } catch { return [] }
+  return pids.filter((pid) => {
+    try {
+      const command = execFileSync('ps', ['-o', 'command=', '-p', String(pid)], { encoding: 'utf8', timeout: 5000 }).trim()
+      return /\bnode\b/.test(command) && /unblock/i.test(command) && /(^|\/)src\/daemon\.js$/.test(command.split(/\s+/).at(-1))
+    } catch { return false }
+  })
+}
+
+async function probeHealth(port, timeoutMs = Number(process.env.UNBLOCK_HEALTH_TIMEOUT_MS) || 6000) {
+  return fetch(`http://${HOST}:${port}/api/health`, { signal: AbortSignal.timeout(timeoutMs) })
+    .then((res) => res.ok)
+    .catch(() => false)
+}
+
+async function startResilient() {
+  const start = () => startDaemon({})
+  try {
+    return await start()
   } catch (error) {
     if (error?.code !== 'EADDRINUSE') throw error
-    // startDaemon has applied the config file by now, so the port is final.
     const port = Number(process.env.UNBLOCK_PORT || 4488)
-
-    const healthy = await fetch(`http://${HOST}:${port}/api/health`, {
-      signal: AbortSignal.timeout(1500),
-    })
-      .then((res) => res.ok)
-      .catch(() => false)
+    const healthy = await probeHealth(port)
 
     if (process.env.UNBLOCK_SUPERVISED !== '1') {
       if (healthy) {
         console.log(`unblock daemon already running on ${port}; this start is redundant`)
         process.exit(0)
       }
-      throw error // port squatted by something that is not a healthy daemon
+      throw error
     }
 
+    const targets = new Set(portHolders(port))
     try {
       const { pid } = JSON.parse(readFileSync(join(stateDir(), 'daemon.json'), 'utf8'))
-      if (pid && pid !== process.pid) process.kill(pid, 'SIGTERM')
-    } catch {
-      /* no pid file or already gone; the retry loop decides */
+      if (pid && pid !== process.pid) targets.add(pid)
+    } catch {}
+    for (const pid of targets) {
+      try { process.kill(pid, 'SIGTERM') } catch {}
     }
+    if (targets.size) console.log(`unblock supervised start: asked ${[...targets].join(', ')} to release ${port}`)
     for (let attempt = 0; attempt < 25; attempt += 1) {
       await new Promise((r) => setTimeout(r, 200))
       try {
-        return await startDaemon({})
+        return await start()
       } catch (retryError) {
         if (retryError?.code !== 'EADDRINUSE') throw retryError
       }
     }
-    throw error
+    if (!healthy && !(await probeHealth(port))) throw error
+    console.log(`unblock supervised start: a healthy daemon still holds ${port}; waiting to adopt the port`)
+    for (;;) {
+      await new Promise((r) => setTimeout(r, 5000))
+      try {
+        return await start()
+      } catch (retryError) {
+        if (retryError?.code !== 'EADDRINUSE') throw retryError
+      }
+    }
   }
 }
 

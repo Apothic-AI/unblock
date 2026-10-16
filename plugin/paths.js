@@ -46,11 +46,11 @@ export function authToken() {
   return process.env.UNBLOCK_AUTH || readDaemonFile().auth || null
 }
 
-async function alive(port) {
+async function alive(port, timeoutMs = Number(process.env.UNBLOCK_HEALTH_TIMEOUT_MS) || 4000) {
   if (!port) return false
   try {
     const res = await fetch(`http://127.0.0.1:${port}/api/health`, {
-      signal: AbortSignal.timeout(1200),
+      signal: AbortSignal.timeout(timeoutMs),
     })
     return res.ok
   } catch {
@@ -59,9 +59,10 @@ async function alive(port) {
 }
 
 /** Find the daemon, starting it detached if it is not up. Returns a base URL. */
-export async function daemon({ start = true, timeoutMs = 5000 } = {}) {
+export async function daemon({ start = true, timeoutMs = Number(process.env.UNBLOCK_START_TIMEOUT_MS) || 15000 } = {}) {
   let port = readPort()
   if (await alive(port)) return `http://127.0.0.1:${port}`
+  if (port && await alive(port, 8000)) return `http://127.0.0.1:${port}`
   if (!start) throw new Error('unblock daemon is not running')
 
   const source = daemonSource()
