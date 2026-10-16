@@ -1547,32 +1547,29 @@ async function startResilient() {
       throw error
     }
 
-    const targets = new Set(portHolders(port))
-    try {
-      const { pid } = JSON.parse(readFileSync(join(stateDir(), 'daemon.json'), 'utf8'))
-      if (pid && pid !== process.pid) targets.add(pid)
-    } catch {}
-    for (const pid of targets) {
-      try { process.kill(pid, 'SIGTERM') } catch {}
-    }
-    if (targets.size) console.log(`unblock supervised start: asked ${[...targets].join(', ')} to release ${port}`)
-    for (let attempt = 0; attempt < 25; attempt += 1) {
-      await new Promise((r) => setTimeout(r, 200))
+    const evict = () => {
+      const targets = new Set(portHolders(port))
       try {
-        return await start()
-      } catch (retryError) {
-        if (retryError?.code !== 'EADDRINUSE') throw retryError
+        const { pid } = JSON.parse(readFileSync(join(stateDir(), 'daemon.json'), 'utf8'))
+        if (pid && pid !== process.pid) targets.add(pid)
+      } catch {}
+      for (const pid of targets) {
+        try { process.kill(pid, 'SIGTERM') } catch {}
       }
+      if (targets.size) console.log(`unblock supervised start: asked ${[...targets].join(', ')} to release ${port}`)
     }
-    if (!healthy && !(await probeHealth(port))) throw error
-    console.log(`unblock supervised start: a healthy daemon still holds ${port}; waiting to adopt the port`)
-    for (;;) {
+    for (let round = 0; ; round += 1) {
+      evict()
+      for (let attempt = 0; attempt < 25; attempt += 1) {
+        await new Promise((r) => setTimeout(r, 200))
+        try {
+          return await start()
+        } catch (retryError) {
+          if (retryError?.code !== 'EADDRINUSE') throw retryError
+        }
+      }
+      if (round === 0 && !healthy && !(await probeHealth(port))) throw error
       await new Promise((r) => setTimeout(r, 5000))
-      try {
-        return await start()
-      } catch (retryError) {
-        if (retryError?.code !== 'EADDRINUSE') throw retryError
-      }
     }
   }
 }
