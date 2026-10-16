@@ -13,7 +13,7 @@ import { homedir } from 'node:os'
 import { dirname, extname, join, resolve, sep, isAbsolute } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 
-import { applyConfig, configDir, daemonRoot } from './config.js'
+import { applyConfig, configDir, daemonRoot, scopeLinkTemplate } from './config.js'
 import { createLivedocApprovals } from './scope-approvals.js'
 import { APPROVAL_PURPOSES, normalizeOrigin, optionalScrub, validateAsk, validateUpdate, ValidationError } from './schema.js'
 import { SecretStore } from './secrets.js'
@@ -824,7 +824,7 @@ async function answerAsk(ticket, values, reply, fieldContext, fieldBounce, revis
         // Clients use this to build ONE stable answer URL instead of minting a
         // throwaway token for every ask.
         public_origin: process.env.UNBLOCK_PUBLIC_ORIGIN ?? null,
-        scope_link_template: process.env.UNBLOCK_SCOPE_LINK_TEMPLATE || null,
+        scope_link_template: scopeLinkTemplate(process.env.UNBLOCK_SCOPE_LINK_TEMPLATE),
         // Which viewer identity, if any, the daemon trusts, and whether the
         // settings came from the config file — so a wrong deployment is
         // visible from one curl instead of a 403 hunt.

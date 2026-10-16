@@ -16,6 +16,7 @@ import { daemon, authToken, stateDir } from '../plugin/paths.js'
 import { SecretStore } from '../src/secrets.js'
 import { rectLabel, quoteSnippet } from '../src/scope-anchor.js'
 import { kindOf } from '../src/doc-kinds.js'
+import { scopeLinkTemplate } from '../src/config.js'
 import { SECTION_ID, carryAudience, slidesOf, docFromMarkdown, docToMarkdown, orderThreads, headingOf, THREAD_ID, APPS, validateScope, DOC_KINDS, DOC_WHERES, MODEL_ALIAS, DOC_THEME } from '../src/scope-doc.js'
 import { connect as railsConnect, railsAccessToken, railsResource, railsSecretIn } from '../src/rails-auth.js'
 
@@ -538,7 +539,7 @@ async function scopeLinks(health, slug) {
   const base = health.public_origin?.replace(/\/$/, '') || `http://127.0.0.1:${new URL(await daemon()).port}`
   const encoded = encodeURIComponent(slug)
   const studio_url = `${base}/s/${encoded}`
-  const url = health.scope_link_template ? health.scope_link_template.replaceAll('{slug}', encoded) : studio_url
+  const url = scopeLinkTemplate(health.scope_link_template).replaceAll('{slug}', encoded)
   return { url, studio_url }
 }
 

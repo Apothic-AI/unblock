@@ -138,7 +138,7 @@ test('scope new sets the owning pane tab review doc to the scope link', async ()
     const made = await run(['scope', 'new', 'tab-doc', '--pane', 'w5H:pT9', '--title', 'Review me'], { ...process.env, UNBLOCK_PORT: String(h.port) })
     assert.equal(made.status, 0, made.stderr)
     const lines = h.paneLines().split('\n').filter((line) => line.startsWith('tab doc set'))
-    assert.deepEqual(lines, ['tab doc set --pane w5H:pT9 https://studio.example.ts.net:8797/s/tab-doc --title Review me'])
+    assert.deepEqual(lines, ['tab doc set --pane w5H:pT9 https://app.rails.so/workspace/rails-admin?route=scoping/tab-doc --title Review me'])
   } finally { await h.close() }
 })
 

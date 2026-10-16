@@ -3,7 +3,7 @@
 // Canonical: https://app.rails.so/workspace/rails-admin?route=scoping/<slug>. unblock reads the template from
 // config (`scope_link_template`, env UNBLOCK_SCOPE_LINK_TEMPLATE, "{slug}" placeholder), health reports it, and
 // `unblock scope list` / `unblock scope url` put it in `url`; the Studio page link stays as `studio_url`.
-// With no template, `url` is the Studio link as today.
+// With no template, or a template on a retired doc port (8797, 8799, 8844), `url` is the canonical Rails link (Alex, 2026-10-16).
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { spawn } from 'node:child_process'
@@ -34,6 +34,9 @@ test('config: scope_link_template is one https URL with {slug}; anything else is
   assert.equal(at('https://app.rails.so/workspace/rails-admin'), undefined, 'no {slug} is refused')
   assert.equal(at('javascript:alert(1)//{slug}'), undefined)
   assert.equal(at(42), undefined)
+  for (const port of ['8797', '8799', '8844']) {
+    assert.equal(at(`https://studio.tailf266ac.ts.net:${port}/s/{slug}`), undefined, `retired port ${port} is refused`)
+  }
   const env = { UNBLOCK_SCOPE_LINK_TEMPLATE: 'https://example.com/{slug}' }
   const path = join(dir, 'win.json'); writeFileSync(path, JSON.stringify({ scope_link_template: TEMPLATE }))
   applyConfig({ env, path })
@@ -51,21 +54,28 @@ test('scope list and scope url emit the canonical link in url and keep the Studi
     child.on('error', reject); child.on('close', (status) => resolve({ status, stdout, stderr }))
   })
   try {
-    // 1. No template: url is the Studio page link, as today, and studio_url is the same link.
+    const CANONICAL = 'https://app.rails.so/workspace/rails-admin?route=scoping/demo'
+    let health = await h.request('/api/health', { headers: human })
+    assert.equal(health.json.scope_link_template, TEMPLATE, 'no template: health reports the Rails template')
     let got = await cli('scope', 'url', 'demo', '--json')
     assert.equal(got.status, 0, got.stderr)
     const before = JSON.parse(got.stdout)
-    assert.match(before.url, /\/s\/demo$/)
-    assert.equal(before.studio_url, before.url)
+    assert.equal(before.url, CANONICAL)
+    assert.match(before.studio_url, /\/s\/demo$/)
     got = await cli('scope', 'list', '--json')
     assert.equal(got.status, 0, got.stderr)
     let row = JSON.parse(got.stdout).scopes.find((r) => r.slug === 'demo')
-    assert.match(row.url, /\/s\/demo$/)
-    assert.equal(row.studio_url, row.url)
+    assert.equal(row.url, CANONICAL)
+
+    process.env.UNBLOCK_SCOPE_LINK_TEMPLATE = 'https://studio.tailf266ac.ts.net:8797/s/{slug}'
+    health = await h.request('/api/health', { headers: human })
+    assert.equal(health.json.scope_link_template, TEMPLATE, 'a retired 8797 template is replaced by the Rails template')
+    got = await cli('scope', 'url', 'demo')
+    assert.equal(got.stdout.trim(), CANONICAL, 'scope url never prints a retired doc port')
 
     // 2. With the template (the daemon's config), health reports it and every link the CLI prints is canonical.
     process.env.UNBLOCK_SCOPE_LINK_TEMPLATE = TEMPLATE
-    const health = await h.request('/api/health', { headers: human })
+    health = await h.request('/api/health', { headers: human })
     assert.equal(health.json.scope_link_template, TEMPLATE)
     got = await cli('scope', 'url', 'demo', '--json')
     assert.equal(got.status, 0, got.stderr)

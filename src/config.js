@@ -13,7 +13,7 @@
  *   ~/.config/unblock/config.json
  *   {
  *     "public_origin": "https://studio.tailf266ac.ts.net:8797",
- *     "scope_link_template": "https://studio.tailf266ac.ts.net:8797/s/{slug}",
+ *     "scope_link_template": "https://app.rails.so/workspace/rails-admin?route=scoping/{slug}",
  *     "trusted_proxy": "tailscale",
  *     "allowed_users": ["a.neyman17@gmail.com"],
  *     "root": "/path/to/the/canonical/checkout"
@@ -78,16 +78,24 @@ export function normalizePublicOrigin(value) {
   return url.origin
 }
 
+export const RAILS_SCOPE_LINK_TEMPLATE = 'https://app.rails.so/workspace/rails-admin?route=scoping/{slug}'
+export const RETIRED_DOC_PORTS = ['8797', '8799', '8844']
+
 export function normalizeScopeLinkTemplate(value) {
   if (typeof value !== 'string' || !value.includes('{slug}')) return null
   const raw = value.trim()
   if (/\s/.test(raw)) return null
   try {
     const url = new URL(raw)
+    if (RETIRED_DOC_PORTS.includes(url.port)) return null
     return url.protocol === 'https:' && url.hostname ? raw : null
   } catch {
     return null
   }
+}
+
+export function scopeLinkTemplate(value) {
+  return normalizeScopeLinkTemplate(value) || RAILS_SCOPE_LINK_TEMPLATE
 }
 
 export function normalizeTrustedProxy(value) {
