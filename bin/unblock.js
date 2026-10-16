@@ -538,7 +538,7 @@ async function uploadDocImages(slug, doc, source) {
 async function scopeLinks(health, slug) {
   const base = health.public_origin?.replace(/\/$/, '') || `http://127.0.0.1:${new URL(await daemon()).port}`
   const encoded = encodeURIComponent(slug)
-  const studio_url = `${base}/s/${encoded}`
+  const studio_url = `${base}/s/${encoded}?studio=1`
   const url = scopeLinkTemplate(health.scope_link_template).replaceAll('{slug}', encoded)
   return { url, studio_url }
 }
