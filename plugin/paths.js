@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 import { existsSync, readFileSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { spawn } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
 
 import { daemonRoot } from '../src/config.js'
 
@@ -46,6 +46,16 @@ export function authToken() {
   return process.env.UNBLOCK_AUTH || readDaemonFile().auth || null
 }
 
+function launchdJob() {
+  return `gui/${process.getuid?.()}/${process.env.UNBLOCK_LAUNCHD_LABEL || 'com.aneyman.unblock'}`
+}
+
+function launchdLoaded() {
+  if (process.env.UNBLOCK_STATE_DIR || process.platform !== 'darwin' || !process.getuid) return false
+  const result = spawnSync('launchctl', ['print', launchdJob()], { stdio: 'ignore', timeout: 5000 })
+  return result.status === 0
+}
+
 async function alive(port, timeoutMs = Number(process.env.UNBLOCK_HEALTH_TIMEOUT_MS) || 4000) {
   if (!port) return false
   try {
@@ -65,12 +75,15 @@ export async function daemon({ start = true, timeoutMs = Number(process.env.UNBL
   if (port && await alive(port, 8000)) return `http://127.0.0.1:${port}`
   if (!start) throw new Error('unblock daemon is not running')
 
-  const source = daemonSource()
-  spawn(process.execPath, [join(source, 'src', 'daemon.js')], {
-    detached: true,
-    stdio: 'ignore',
-    cwd: source,
-  }).unref()
+  const supervised = launchdLoaded()
+  if (!supervised) {
+    const source = daemonSource()
+    spawn(process.execPath, [join(source, 'src', 'daemon.js')], {
+      detached: true,
+      stdio: 'ignore',
+      cwd: source,
+    }).unref()
+  }
 
   const deadline = Date.now() + timeoutMs
   while (Date.now() < deadline) {
@@ -78,7 +91,9 @@ export async function daemon({ start = true, timeoutMs = Number(process.env.UNBL
     port = readPort()
     if (await alive(port)) return `http://127.0.0.1:${port}`
   }
-  throw new Error(`unblock daemon did not come up within ${timeoutMs}ms`)
+  throw new Error(supervised
+    ? `unblock daemon (launchd ${launchdJob()}) did not answer within ${timeoutMs}ms`
+    : `unblock daemon did not come up within ${timeoutMs}ms`)
 }
 
 export async function api(path, body) {
