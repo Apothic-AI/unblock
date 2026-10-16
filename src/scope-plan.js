@@ -42,26 +42,81 @@ export function recordPlan(slug, record, path = plansPath()) {
 }
 
 const attr = (value) => String(value).replace(/"/g, "'").replace(/[{}<>]/g, ' ').trim()
+const short = (value) => attr(value).slice(0, 400).trim()
 const cells = (line) => line.trim().replace(/^\||\|$/g, '').split('|').map((cell) => cell.trim())
+const prose = (line) => line.replace(/\s*\{#[\w-]+\}\s*$/, '').split(/(`+[^`]*?`+)/).map((part, n) => (n % 2 ? part : part.replace(/[<{}]/g, '\\$&'))).join('')
+const MEDIA_ASSET = /^asset:([0-9a-f]{16}\.[a-z0-9]+)$/
+
+function mediaValues(source) {
+  const values = {}
+  for (const line of String(source).split('\n')) {
+    const match = line.match(/^\s*([^:]+):\s*(.*?)\s*$/)
+    if (match) values[match[1].trim()] = match[2]
+  }
+  return values
+}
+
+function mediaSrc(value, assets) {
+  const text = String(value ?? '').trim()
+  const id = text.match(MEDIA_ASSET)?.[1]
+  if (id) {
+    assets.add(id)
+    return `asset:${id}`
+  }
+  return /^https:\/\/\S+$/.test(text) ? attr(text) : ''
+}
+
+function mediaBlock(lang, values, caption, counter, assets) {
+  const src = mediaSrc(values.src, assets)
+  if (!src) return caption
+  const label = caption ? ` caption="${short(caption)}"` : ''
+  if (lang === 'video' || /\.(mp4|webm)$/.test(src)) {
+    const poster = mediaSrc(values.poster, assets)
+    return `<Film id="f${++counter.n}" src="${src}"${poster ? ` poster="${poster}"` : ''}${label} />`
+  }
+  return `<PrototypeEmbed id="p${++counter.n}" src="${src}"${label} />`
+}
 
 function convertBody(body, counter, assets) {
   const lines = String(body).split('\n'), out = []
+  let code = false
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i]
+    if (code) {
+      if (/^\s*```\s*$/.test(line)) code = false
+      out.push(line)
+      continue
+    }
     const image = line.match(/^!\[([^\]]*)\]\(asset:([0-9a-f]{16}\.(?:png|jpg|webp|gif|svg|mock))(?:\s+"[^"]*")?\)\s*$/)
     if (image) {
       assets.add(image[2])
-      out.push(`<MockStill id="m${++counter.n}" src="asset:${image[2]}" alt="${attr(image[1]) || 'Figure'}" caption="${attr(image[1])}" />`)
+      out.push(`<MockStill id="m${++counter.n}" src="asset:${image[2]}" alt="${short(image[1]) || 'Figure'}" caption="${short(image[1])}" />`)
       continue
     }
     if (line.startsWith('|') && /^\|[\s:|-]+\|$/.test((lines[i + 1] ?? '').trim())) {
-      const columns = cells(line).map((cell, index) => cell || (index === 0 ? 'Item' : ' '))
+      const columns = cells(line).map((cell, index) => cell || (index === 0 ? 'Item' : '\u200b'))
       const rows = []
       i += 2
       while (i < lines.length && lines[i].startsWith('|')) rows.push(cells(lines[i++]))
       i--
       out.push(`<Table id="t${++counter.n}" columns={${JSON.stringify(columns)}} rows={${JSON.stringify(rows)}} />`)
       continue
+    }
+    const fence = line.trim().match(/^```(video|demo|tabs)$/)
+    if (fence) {
+      const end = lines.indexOf('```', i + 1)
+      if (end > i) {
+        const source = lines.slice(i + 1, end).join('\n')
+        let caption = ''
+        if (/^Figure:\s*/.test(lines[end + 1] ?? '')) caption = lines[end + 1].replace(/^Figure:\s*/, '').trim()
+        const entries = fence[1] === 'tabs'
+          ? source.split(/^\s*---\s*$/m).filter((entry) => entry.trim()).map((entry) => { const values = mediaValues(entry); return mediaBlock('demo', values, values.caption || '', counter, assets) })
+          : [mediaBlock(fence[1], mediaValues(source), caption, counter, assets)]
+        if (fence[1] === 'tabs' && caption) entries.push(caption)
+        out.push(entries.filter(Boolean).join('\n\n'))
+        i = caption ? end + 1 : end
+        continue
+      }
     }
     if (line.trim() === '```svg') {
       const end = lines.indexOf('```', i + 1)
@@ -73,7 +128,12 @@ function convertBody(body, counter, assets) {
         continue
       }
     }
-    out.push(line)
+    if (/^\s*```/.test(line)) {
+      code = true
+      out.push(line)
+      continue
+    }
+    out.push(prose(line))
   }
   return out.join('\n')
 }
@@ -83,7 +143,7 @@ export function scopeToPlanMdx(scope) {
   const counter = { n: 0 }, assets = new Set()
   const lead = String(title?.body_md ?? '').split('\n\n').map((p) => p.trim()).find((p) => p && !/^[!|`<]/.test(p)) ?? ''
   const parts = [convertBody(title?.body_md ?? '', counter, assets)]
-  for (const section of sections) parts.push(`## ${section.heading}\n\n${convertBody(section.body_md, counter, assets)}`)
+  for (const section of sections) parts.push(`## ${prose(section.heading)}\n\n${convertBody(section.body_md, counter, assets)}`)
   const mdx = `---\ntitle: ${JSON.stringify(scope.title || title?.heading || scope.slug)}\nbrief: ${JSON.stringify(lead.slice(0, 300))}\n---\n\n${parts.join('\n\n').trim()}\n`
   return { mdx, assets: [...assets] }
 }

@@ -27,6 +27,17 @@ test('a scope becomes Plan MDX: front matter, Table and Diagram blocks, prose ke
   const framed = scopeToPlanMdx({ ...scope, doc: { sections: [{ id: 'title', heading: 'Framed', body_md: 'Intro.\n\n![Today opens on goals](asset:bdefdb062b3543df.mock)' }] } })
   assert.deepEqual(framed.assets, ['bdefdb062b3543df.mock'], 'an HTML mock frame is published as its still')
   assert.match(framed.mdx, /<MockStill id="m\d+" src="asset:bdefdb062b3543df\.mock" alt="Today opens on goals"/)
+  const media = scopeToPlanMdx({ ...scope, doc: { sections: [
+    { id: 'title', heading: 'Media', body_md: 'Intro.' },
+    { id: 'flow', heading: 'The flow {#flow}', body_md: 'The <agent> sends `{json}` to {slug}.\n\n```demo\nsrc: asset:c27ab2a02aacfd52.html\nheight: 720\n```\nFigure: The whole flow.\n\n```video\nsrc: asset:6c54565ba4422e24.mp4\nposter: asset:f002ee65fe8e1ad5.png\n```\nFigure: The same flow as a film.\n\n```mermaid\ngraph LR; a-->{b}\n```' },
+  ] } })
+  assert.deepEqual(media.assets.sort(), ['6c54565ba4422e24.mp4', 'c27ab2a02aacfd52.html', 'f002ee65fe8e1ad5.png'], 'a recording publishes with its poster and a demo with its page')
+  assert.match(media.mdx, /<PrototypeEmbed id="p\d+" src="asset:c27ab2a02aacfd52\.html" caption="The whole flow\." \/>/)
+  assert.match(media.mdx, /<Film id="f\d+" src="asset:6c54565ba4422e24\.mp4" poster="asset:f002ee65fe8e1ad5\.png" caption="The same flow as a film\." \/>/)
+  assert.doesNotMatch(media.mdx, /```(demo|video)|^Figure:/m)
+  assert.match(media.mdx, /^## The flow$/m, 'a heading id does not reach MDX')
+  assert.match(media.mdx, /The \\<agent> sends `\{json\}` to \\\{slug\\\}\./, 'prose angle brackets and braces are escaped, code spans are not')
+  assert.match(media.mdx, /graph LR; a-->\{b\}/, 'fenced code is left alone')
 })
 
 test('scope plan publishes to :8950/plans/, scope url prints that link, and later writes rewrite the same plan', async () => {
