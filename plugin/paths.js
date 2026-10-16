@@ -69,13 +69,14 @@ async function alive(port, timeoutMs = Number(process.env.UNBLOCK_HEALTH_TIMEOUT
 }
 
 /** Find the daemon, starting it detached if it is not up. Returns a base URL. */
-export async function daemon({ start = true, timeoutMs = Number(process.env.UNBLOCK_START_TIMEOUT_MS) || 15000 } = {}) {
+export async function daemon({ start = true, timeoutMs } = {}) {
   let port = readPort()
   if (await alive(port)) return `http://127.0.0.1:${port}`
   if (port && await alive(port, 8000)) return `http://127.0.0.1:${port}`
   if (!start) throw new Error('unblock daemon is not running')
 
   const supervised = launchdLoaded()
+  timeoutMs ??= Number(process.env.UNBLOCK_START_TIMEOUT_MS) || (supervised ? 45000 : 15000)
   if (!supervised) {
     const source = daemonSource()
     spawn(process.execPath, [join(source, 'src', 'daemon.js')], {
