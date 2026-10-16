@@ -1,5 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
-import { randomBytes } from 'node:crypto'
+import { createHash, randomBytes } from 'node:crypto'
+import { execFile } from 'node:child_process'
+import { promisify } from 'node:util'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 
@@ -41,6 +43,27 @@ export function recordPlan(slug, record, path = plansPath()) {
   const tmp = `${path}.${process.pid}.${randomBytes(4).toString('hex')}.tmp`
   writeFileSync(tmp, JSON.stringify(plans, null, 2))
   renameSync(tmp, path)
+}
+
+async function feedKey(env) {
+  if (env.RAILS_ADMIN_FEED_KEY) return env.RAILS_ADMIN_FEED_KEY
+  const { stdout } = await promisify(execFile)(env.UNBLOCK_AGENT_SECRET_BIN || join(homedir(), '.local', 'bin', 'agent-secret'), ['get', 'rails-admin-feed-key'], { timeout: 10000 })
+  return stdout.trim()
+}
+
+export async function linkPlan(slug, url, env = process.env) {
+  if (env.UNBLOCK_PLAN_LINK === 'off') return null
+  const base = `${(env.UNBLOCK_RAILS_ADMIN_ORIGIN || 'https://rails.so').replace(/\/$/, '')}/api/rails-admin/v1/plan/scopes/${encodeURIComponent(slug)}`
+  const headers = { authorization: `Bearer ${await feedKey(env)}`, 'content-type': 'application/json' }
+  const read = await fetch(base, { headers, signal: AbortSignal.timeout(20000) })
+  if (!read.ok && read.status !== 404) throw new Error(`Rails read HTTP ${read.status}`)
+  const view = read.ok ? await read.json() : {}
+  const lane = !view.mirror && typeof view.lane === 'string' ? view.lane : null
+  const client_id = 'unblock-plan-' + createHash('sha256').update(url).digest('hex').slice(0, 32)
+  const [path, body] = lane ? ['set-plan-url', { client_id, lane, plan_url: url }] : ['plan-link', { plan_url: url, ...(view.owner ? { owner: view.owner } : {}) }]
+  const sent = await fetch(`${base}/${path}`, { method: 'POST', headers, body: JSON.stringify(body), signal: AbortSignal.timeout(20000) })
+  if (!sent.ok) throw new Error(`Rails ${path} HTTP ${sent.status}`)
+  return { via: path, ...(lane ? { lane } : {}) }
 }
 
 const attr = (value) => String(value).replace(/"/g, "'").replace(/[{}<>]/g, ' ').trim()

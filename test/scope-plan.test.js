@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { spawn } from 'node:child_process'
+import { createServer } from 'node:http'
 import { chmodSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -115,6 +116,64 @@ test('scope plan publishes to :8950/plans/, scope url prints that link, and late
     assert.equal(nav.status, 302)
     assert.equal(nav.headers.get('location'), 'https://studio.example.ts.net:8950/plans/plan-hand', 'an old /s/ link opens the Plan doc')
   } finally {
+    await h.close()
+  }
+})
+
+test('publishing a Plan doc sets its plan_url in Rails, and a Rails failure never blocks the publish', async () => {
+  const h = await startScopeHarness(scope)
+  const temp = mkdtempSync(join(tmpdir(), 'unblock-plan-link-'))
+  const fake = join(temp, 'plan-publish')
+  writeFileSync(fake, `#!/bin/sh\nprintf '{"ok": true, "plan": "plan-abc", "url": "https://studio.example.ts.net:8950/plans/plan-abc"}\\n'\n`)
+  chmodSync(fake, 0o700)
+  const seen = []
+  let imported = true, down = false
+  const rails = createServer((req, res) => {
+    let raw = ''
+    req.on('data', (c) => { raw += c })
+    req.on('end', () => {
+      seen.push({ method: req.method, url: req.url, auth: req.headers.authorization, body: raw ? JSON.parse(raw) : null })
+      if (down) { res.writeHead(503); res.end(); return }
+      if (req.method === 'GET') {
+        res.writeHead(imported ? 200 : 404, { 'content-type': 'application/json' })
+        res.end(JSON.stringify(imported ? { slug: 'demo', lane: 'probe-lane' } : { error: 'no_scope' }))
+        return
+      }
+      res.writeHead(200, { 'content-type': 'application/json' })
+      res.end('{}')
+    })
+  })
+  await new Promise((resolve) => rails.listen(0, '127.0.0.1', resolve))
+  const cli = (args) => new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, [join(import.meta.dirname, '..', 'bin', 'unblock.js'), ...args], { env: { ...process.env, UNBLOCK_PORT: String(h.port), UNBLOCK_PLAN_PUBLISH: fake, UNBLOCK_PLAN_LINK: 'on', UNBLOCK_RAILS_ADMIN_ORIGIN: `http://127.0.0.1:${rails.address().port}`, RAILS_ADMIN_FEED_KEY: 'feed-key-for-test' } })
+    let stdout = '', stderr = ''
+    child.stdout.on('data', (c) => { stdout += c }); child.stderr.on('data', (c) => { stderr += c })
+    child.on('error', reject); child.on('close', (status) => resolve({ status, stdout, stderr }))
+  })
+  try {
+    let got = await cli(['scope', 'plan', 'demo', '--json'])
+    assert.equal(got.status, 0, got.stderr)
+    const post = seen.find((r) => r.method === 'POST')
+    assert.equal(post.url, '/api/rails-admin/v1/plan/scopes/demo/set-plan-url')
+    assert.equal(post.auth, 'Bearer feed-key-for-test')
+    assert.equal(post.body.lane, 'probe-lane', 'the lane is the one Rails has for the scope')
+    assert.equal(post.body.plan_url, 'https://studio.example.ts.net:8950/plans/plan-abc')
+    assert.match(post.body.client_id, /^unblock-plan-[0-9a-f]{32}$/)
+
+    seen.length = 0
+    imported = false
+    got = await cli(['scope', 'plan', 'demo', '--json'])
+    assert.equal(got.status, 0, got.stderr)
+    assert.deepEqual(seen.filter((r) => r.method === 'POST').map((r) => [r.url, r.body]), [['/api/rails-admin/v1/plan/scopes/demo/plan-link', { plan_url: 'https://studio.example.ts.net:8950/plans/plan-abc' }]],
+      'a scope Rails has not imported gets a plan-link record the import picks up')
+
+    down = true
+    got = await cli(['scope', 'plan', 'demo'])
+    assert.equal(got.status, 0, 'a Rails failure never blocks the publish')
+    assert.equal(got.stdout.trim(), 'https://studio.example.ts.net:8950/plans/plan-abc')
+    assert.deepEqual(got.stderr.trim().split('\n').filter((l) => /Rails/.test(l)), ['Rails plan_url not set for demo: Rails read HTTP 503'])
+  } finally {
+    rails.close()
     await h.close()
   }
 })

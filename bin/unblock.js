@@ -17,7 +17,7 @@ import { SecretStore } from '../src/secrets.js'
 import { rectLabel, quoteSnippet } from '../src/scope-anchor.js'
 import { kindOf } from '../src/doc-kinds.js'
 import { scopeLinkTemplate } from '../src/config.js'
-import { PLAN_URL, planFor, planQuestions, recordPlan, scopeToPlanMdx } from '../src/scope-plan.js'
+import { PLAN_URL, linkPlan, planFor, planQuestions, recordPlan, scopeToPlanMdx } from '../src/scope-plan.js'
 import { SECTION_ID, carryAudience, slidesOf, docFromMarkdown, docToMarkdown, orderThreads, headingOf, THREAD_ID, APPS, validateScope, DOC_KINDS, DOC_WHERES, MODEL_ALIAS, DOC_THEME } from '../src/scope-doc.js'
 import { connect as railsConnect, railsAccessToken, railsResource, railsSecretIn } from '../src/rails-auth.js'
 
@@ -555,6 +555,15 @@ async function scopeLinks(health, slug) {
   return { url, studio_url, ...(plan ? { plan_url: plan.url } : {}) }
 }
 
+async function tellRails(slug, url) {
+  try {
+    return await linkPlan(slug, url)
+  } catch (error) {
+    console.error(`Rails plan_url not set for ${slug}: ${error.message}`)
+    return null
+  }
+}
+
 async function publishPlan(slug) {
   const { scope } = await request(`/api/scope/${encodeURIComponent(slug)}`)
   const existing = planFor(slug)
@@ -562,7 +571,7 @@ async function publishPlan(slug) {
     const text = `Scope ${slug} changed (revision ${scope.revision}). Your Plan doc ${existing.url} was built by hand, so unblock left it alone; carry the change over yourself.`
     const post = spawnSync(process.env.UNBLOCK_LANE_POST || join(homedir(), '.agent-rails/factory-runtime/bin/lane-post'), ['post', '--to', scope.pane, '--from', process.env.HERDR_PANE_ID || scope.pane, '--kind', 'info', text], { encoding: 'utf8', timeout: 30000 })
     recordPlan(slug, { ...existing, revision: scope.revision })
-    return { plan: existing.plan, url: existing.url, revision: scope.revision, questions: 0, skipped: 'hand-built', notified: post.status === 0 ? scope.pane : null }
+    return { plan: existing.plan, url: existing.url, revision: scope.revision, questions: 0, skipped: 'hand-built', notified: post.status === 0 ? scope.pane : null, rails: await tellRails(slug, existing.url) }
   }
   const { mdx, assets } = scopeToPlanMdx(scope)
   const dir = mkdtempSync(join(tmpdir(), 'unblock-plan-'))
@@ -602,7 +611,7 @@ async function publishPlan(slug) {
     try { made = JSON.parse(run.stdout.trim().split('\n').at(-1)) } catch { throw new Error('plan-publish printed no JSON') }
     if (!PLAN_URL.test(made.url ?? '')) throw new Error(`plan-publish printed ${made.url}, not a :8950/plans/ link`)
     recordPlan(slug, { plan: made.plan, url: made.url, generated: true, revision: scope.revision, asked: [...asked, ...questions.map((q) => q.quote)] })
-    return { plan: made.plan, url: made.url, revision: scope.revision, questions: questions.length }
+    return { plan: made.plan, url: made.url, revision: scope.revision, questions: questions.length, rails: await tellRails(slug, made.url) }
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
