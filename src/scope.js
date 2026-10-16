@@ -13,6 +13,7 @@ import { kindOf as registeredKindOf, kindSpec as registeredKindSpec } from './do
 import { slidesOf, migrateV1, validateScope, carryAudience, AUDIENCES, normalizeKpis, sectionPlain, anchorInSection, headingOf, sectionHash, nextThreadId, THREAD_ID, SECTION_ID, APPS, appOf, DOC_WHERES, MODEL_ALIAS } from './scope-doc.js'
 import { createAnswerer } from './explainer-answerer.js'
 import { scopeLinkTemplate } from './config.js'
+import { planFor } from './scope-plan.js'
 import { createLiveItems, MAX_TEXT } from './live-items.js'
 import { handleScopeTelemetry } from './scope-telemetry.js'
 
@@ -521,7 +522,7 @@ export function createScopeRoutes({ store, webRoot, sendJson, sendText, readJson
       const slug = pathname.slice(3)
       if (!SLUG.test(slug)) return sendJson(res, 404, { error: 'not found' })
       if (req.method === 'GET' && req.headers['sec-fetch-dest'] === 'document' && !/Headless/.test(req.headers['user-agent'] || '') && !url.searchParams.has('studio') && readScope(slug)) {
-        res.writeHead(302, { Location: scopeLinkTemplate(process.env.UNBLOCK_SCOPE_LINK_TEMPLATE).replaceAll('{slug}', encodeURIComponent(slug)), 'Cache-Control': 'no-store' })
+        res.writeHead(302, { Location: planFor(slug)?.url ?? scopeLinkTemplate(process.env.UNBLOCK_SCOPE_LINK_TEMPLATE).replaceAll('{slug}', encodeURIComponent(slug)), 'Cache-Control': 'no-store' })
         return res.end()
       }
       if (req.method === 'GET') return page(res, slug)

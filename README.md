@@ -397,4 +397,6 @@ Alex’s scoping comments can carry pictures; the lane gets a local path per ima
 `reopen` lets Alex or the Admin relay reopen a resolved or parked comment without changing the doc revision.
 `delete` lets Alex or the Admin relay delete a note Alex started and notifies the lane.
 
+Alex reads a scope as an Agent Native Plan doc. `unblock scope plan <slug>` publishes it with `plan-publish` and prints its `https://studio.tailf266ac.ts.net:8950/plans/<id>` link; after that, `scope doc`, `scope patch` and `scope ask` rewrite the same plan in place, pin each new open question on its sentence, and `scope url` prints the Plan link. A browser opening an old `/s/<slug>` link is sent to it. `UNBLOCK_PLAN_SYNC=off` skips the sync.
+
 Visual review docs (`unblock scope new <slug> --pane <pane> --kind visual`) show full slide images with area comments and the existing comment sidebar. Import a numbered image directory or a JSON slide manifest with `unblock scope slides <slug> --from <dir|slides.json>`; drag over a slide to mark an area (on touch screens, tap “Mark an area” first). Region comments preserve their slide coordinates and, when available, a cropped image for the lane to inspect.

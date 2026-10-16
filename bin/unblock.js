@@ -17,6 +17,7 @@ import { SecretStore } from '../src/secrets.js'
 import { rectLabel, quoteSnippet } from '../src/scope-anchor.js'
 import { kindOf } from '../src/doc-kinds.js'
 import { scopeLinkTemplate } from '../src/config.js'
+import { PLAN_URL, planFor, planQuestions, recordPlan, scopeToPlanMdx } from '../src/scope-plan.js'
 import { SECTION_ID, carryAudience, slidesOf, docFromMarkdown, docToMarkdown, orderThreads, headingOf, THREAD_ID, APPS, validateScope, DOC_KINDS, DOC_WHERES, MODEL_ALIAS, DOC_THEME } from '../src/scope-doc.js'
 import { connect as railsConnect, railsAccessToken, railsResource, railsSecretIn } from '../src/rails-auth.js'
 
@@ -549,12 +550,60 @@ async function scopeLinks(health, slug) {
   const base = health.public_origin?.replace(/\/$/, '') || `http://127.0.0.1:${new URL(await daemon()).port}`
   const encoded = encodeURIComponent(slug)
   const studio_url = `${base}/s/${encoded}?studio=1`
-  const url = scopeLinkTemplate(health.scope_link_template).replaceAll('{slug}', encoded)
-  return { url, studio_url }
+  const plan = planFor(slug)
+  const url = plan ? plan.url : scopeLinkTemplate(health.scope_link_template).replaceAll('{slug}', encoded)
+  return { url, studio_url, ...(plan ? { plan_url: plan.url } : {}) }
+}
+
+async function publishPlan(slug) {
+  const { scope } = await request(`/api/scope/${encodeURIComponent(slug)}`)
+  const { mdx, assets } = scopeToPlanMdx(scope)
+  const dir = mkdtempSync(join(tmpdir(), 'unblock-plan-'))
+  try {
+    const base = await daemon(), token = authToken()
+    if (assets.length) mkdirSync(join(dir, 'assets'))
+    for (const id of assets) {
+      const response = await fetch(`${base}/api/scope/${encodeURIComponent(slug)}/assets/${id}`, { headers: token ? { authorization: `Bearer ${token}` } : {}, signal: AbortSignal.timeout(15000) })
+      if (!response.ok) throw new Error(`asset ${id}: HTTP ${response.status}`)
+      writeFileSync(join(dir, 'assets', id), Buffer.from(await response.arrayBuffer()))
+    }
+    writeFileSync(join(dir, 'doc.mdx'), mdx)
+    const record = planFor(slug)
+    const asked = new Set(record?.asked ?? [])
+    const questions = planQuestions(scope).filter((q) => !asked.has(q.quote))
+    const args = [join(dir, 'doc.mdx'), '--json', '--name', scope.title || slug]
+    if (scope.pane) args.push('--owner', scope.pane)
+    if (assets.length) args.push('--assets', join(dir, 'assets'))
+    if (record) args.push('--into', record.plan)
+    if (questions.length) {
+      writeFileSync(join(dir, 'questions.json'), JSON.stringify(questions))
+      args.push('--questions', join(dir, 'questions.json'))
+    }
+    const run = spawnSync(process.env.UNBLOCK_PLAN_PUBLISH || 'plan-publish', args, { encoding: 'utf8', timeout: 240000 })
+    if (run.error || run.status !== 0) throw new Error(`plan-publish failed: ${(run.stderr || run.error?.message || '').trim().split('\n').at(-1)}`)
+    let made
+    try { made = JSON.parse(run.stdout.trim().split('\n').at(-1)) } catch { throw new Error('plan-publish printed no JSON') }
+    if (!PLAN_URL.test(made.url ?? '')) throw new Error(`plan-publish printed ${made.url}, not a :8950/plans/ link`)
+    recordPlan(slug, { plan: made.plan, url: made.url, revision: scope.revision, asked: [...asked, ...questions.map((q) => q.quote)] })
+    return { plan: made.plan, url: made.url, revision: scope.revision, questions: questions.length }
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
+
+async function syncPlan(slug) {
+  if (process.env.UNBLOCK_PLAN_SYNC === 'off') return
+  try {
+    const made = await publishPlan(slug)
+    console.error(`plan ${made.url}`)
+  } catch (error) {
+    console.error(`plan not updated: ${error.message}; run: unblock scope plan ${slug}`)
+  }
 }
 
 const SCOPE_USAGE = `unblock scope slides <slug> --from <dir|slides.json> [--keep "term" ...]
 unblock scope [list|url|notes|comments]           scoping docs and anchored comments
+unblock scope plan <slug>                         publish the doc for Alex as an Agent Native Plan doc (:8950/plans/<id>); doc, patch and ask keep it current
 unblock scope latency <slug> [--since <ISO|30m|2h|1d>] [--json]
 unblock scope new <slug> --pane <pane> [--app recruiter|closer|rails-admin] [--title "text"] [--kind scope|explainer|review|draft|writing|report|visual] [--parent <slug>] [--theme <name>] [--sources <dir>...] [--answerer on|off]
 unblock scope ask <slug> --section <id> --quote "text" [--rec "text"] [--why "text"] [--option "text" ...] [--piece <id> ...] <question...>
@@ -849,10 +898,12 @@ async function scope(args, mode = 'scope') {
           return { section: item.section, quote: item.quote, text: item.question, ...(item.rec !== undefined ? { recommendation: item.rec } : {}), ...(item.why !== undefined ? { why: item.why } : {}), ...(item.options !== undefined ? { options: item.options } : {}), ...(item.pieces !== undefined ? { piece_ids: item.pieces } : {}) }
         })
         const data = await request(`${base}/threads/batch`, { questions, ...keep })
+        await syncPlan(slug)
         return output(data, data.threads.map((thread) => `asked ${thread.id} on §${thread.anchor.section}`).join('\n'))
       }
       if (!opts['--section'] || !opts['--quote'] || !words.length) fail(usage)
       const data = await request(`${base}/threads`, { section: opts['--section'], quote: opts['--quote'], text: words.join(' '), ...options, ...(opts['--rec'] !== undefined ? { recommendation: opts['--rec'] } : {}), ...(opts['--why'] !== undefined ? { why: opts['--why'] } : {}), ...(opts['--piece'] !== undefined ? { piece_ids: opts['--piece'] } : {}) })
+      await syncPlan(slug)
       return output(data, `asked ${data.thread.id} on §${opts['--section']}`)
     }
     if (sub === 'resolve') {
@@ -925,9 +976,15 @@ async function scope(args, mode = 'scope') {
     } catch (error) { fail(error.message, 1) }
     const data = await request(`/api/scope/${encodeURIComponent(name)}/sections/${encodeURIComponent(extra[0])}`, { ...section, ...(opts['--keep'] ? { keep: opts['--keep'] } : {}), ...(opts['--if-section-hash'] ? { if_section_hash: opts['--if-section-hash'] } : {}) }, { method: 'PUT' })
     lintOutput(data)
+    await syncPlan(name)
     return output(data, `revision ${data.revision}${data.detached.length ? `\ndetached: ${data.detached.join(', ')}` : ''}`)
   }
   if (!name || extra.length) fail(usage)
+  if (verb === 'plan' && !Object.keys(opts).length) {
+    let made
+    try { made = await publishPlan(name) } catch (error) { fail(error.message, 1) }
+    return output(made, made.url)
+  }
   if (verb === 'url' && !Object.keys(opts).length) {
     const health = await request('/api/health')
     const links = await scopeLinks(health, name)
@@ -1028,6 +1085,7 @@ async function scope(args, mode = 'scope') {
     try { await uploadDocImages(name, doc, opts['--from']) } catch (error) { fail(error.message, 1) }
     const data = await request(`/api/scope/${encodeURIComponent(name)}/doc`, { sections: Array.isArray(doc) ? doc : doc.sections, ...(opts['--keep'] ? { keep: opts['--keep'] } : {}) }, { method: 'PUT' })
     lintOutput(data)
+    await syncPlan(name)
     return output(data, `revision ${data.revision}${data.detached.length ? `\ndetached: ${data.detached.join(', ')}` : ''}`)
   }
   if (verb === 'comments') {

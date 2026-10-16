@@ -12,7 +12,7 @@
   },
   "scripts": {
     "start": "node src/daemon.js",
-    "test": "node --test test/*.test.js",
+    "test": "UNBLOCK_PLAN_SYNC=off node --test test/*.test.js",
     "web:dev": "vite web",
     "web:build": "vite build web",
     "build:scope-bundle": "vite build web --mode scope-bundle",

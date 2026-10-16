@@ -6,6 +6,8 @@ import { chmodSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, wr
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
+process.env.UNBLOCK_PLAN_SYNC ??= 'off'
+
 export const human = { Host: 'studio.example.ts.net:8797', 'tailscale-user-login': 'alex@example.com' }
 
 export async function startScopeHarness(initial) {
