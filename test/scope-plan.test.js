@@ -38,6 +38,22 @@ test('a scope becomes Plan MDX: front matter, Table and Diagram blocks, prose ke
   assert.match(media.mdx, /^## The flow$/m, 'a heading id does not reach MDX')
   assert.match(media.mdx, /The \\<agent> sends `\{json\}` to \\\{slug\\\}\./, 'prose angle brackets and braces are escaped, code spans are not')
   assert.match(media.mdx, /graph LR; a-->\{b\}/, 'fenced code is left alone')
+  const framed2 = scopeToPlanMdx({ ...scope, doc: { sections: [{ id: 'title', heading: 'Html', body_md: 'Write asset:NAME for a file.\n\n```html\nsrc: asset:c27ab2a02aacfd52.html\nframe: asset:aaaaaaaaaaaaaaaa.png\n```\n\n```\nasset:bbbbbbbbbbbbbbbb.png\n```' }] } })
+  assert.deepEqual(framed2.assets.sort(), ['aaaaaaaaaaaaaaaa.png', 'c27ab2a02aacfd52.html'], 'every asset key in an html fence is fetched')
+  assert.match(framed2.mdx, /<PrototypeEmbed id="p\d+" src="asset:c27ab2a02aacfd52\.html" \/>/)
+  assert.equal([...framed2.mdx.matchAll(/asset:(?=[^\s"'])/g)].length, 1, 'only fetched assets reach plan-publish as asset: names')
+})
+
+test('parallel scope plan runs never lose the plans file to a shared tmp name', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'unblock-plans-race-'))
+  const runs = Array.from({ length: 8 }, (_, n) => new Promise((resolve) => {
+    const child = spawn(process.execPath, ['--input-type=module', '-e', `import { recordPlan } from ${JSON.stringify(join(import.meta.dirname, '..', 'src', 'scope-plan.js'))}; for (let i = 0; i < 40; i++) recordPlan('s${n}', { url: 'https://h:8950/plans/p${n}', i }, ${JSON.stringify(join(dir, 'scope-plans.json'))})`])
+    let stderr = ''
+    child.stderr.on('data', (c) => { stderr += c })
+    child.on('close', (status) => resolve({ status, stderr }))
+  }))
+  for (const run of await Promise.all(runs)) assert.equal(run.status, 0, run.stderr)
+  assert.doesNotThrow(() => JSON.parse(readFileSync(join(dir, 'scope-plans.json'), 'utf8')))
 })
 
 test('scope plan publishes to :8950/plans/, scope url prints that link, and later writes rewrite the same plan', async () => {

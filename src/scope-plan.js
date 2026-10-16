@@ -1,4 +1,5 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
+import { randomBytes } from 'node:crypto'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 
@@ -37,8 +38,9 @@ export function recordPlan(slug, record, path = plansPath()) {
   const plans = readPlans(path)
   plans[slug] = record
   mkdirSync(dirname(path), { recursive: true })
-  writeFileSync(`${path}.tmp`, JSON.stringify(plans, null, 2))
-  renameSync(`${path}.tmp`, path)
+  const tmp = `${path}.${process.pid}.${randomBytes(4).toString('hex')}.tmp`
+  writeFileSync(tmp, JSON.stringify(plans, null, 2))
+  renameSync(tmp, path)
 }
 
 const attr = (value) => String(value).replace(/"/g, "'").replace(/[{}<>]/g, ' ').trim()
@@ -47,11 +49,14 @@ const cells = (line) => line.trim().replace(/^\||\|$/g, '').split('|').map((cell
 const prose = (line) => line.replace(/\s*\{#[\w-]+\}\s*$/, '').split(/(`+[^`]*?`+)/).map((part, n) => (n % 2 ? part : part.replace(/[<{}]/g, '\\$&'))).join('')
 const MEDIA_ASSET = /^asset:([0-9a-f]{16}\.[a-z0-9]+)$/
 
-function mediaValues(source) {
+function mediaValues(source, assets) {
   const values = {}
   for (const line of String(source).split('\n')) {
     const match = line.match(/^\s*([^:]+):\s*(.*?)\s*$/)
-    if (match) values[match[1].trim()] = match[2]
+    if (!match) continue
+    values[match[1].trim()] = match[2]
+    const id = match[2].match(MEDIA_ASSET)?.[1]
+    if (id) assets.add(id)
   }
   return values
 }
@@ -102,7 +107,7 @@ function convertBody(body, counter, assets) {
       out.push(`<Table id="t${++counter.n}" columns={${JSON.stringify(columns)}} rows={${JSON.stringify(rows)}} />`)
       continue
     }
-    const fence = line.trim().match(/^```(video|demo|tabs)$/)
+    const fence = line.trim().match(/^```(video|demo|tabs|html)$/)
     if (fence) {
       const end = lines.indexOf('```', i + 1)
       if (end > i) {
@@ -110,8 +115,8 @@ function convertBody(body, counter, assets) {
         let caption = ''
         if (/^Figure:\s*/.test(lines[end + 1] ?? '')) caption = lines[end + 1].replace(/^Figure:\s*/, '').trim()
         const entries = fence[1] === 'tabs'
-          ? source.split(/^\s*---\s*$/m).filter((entry) => entry.trim()).map((entry) => { const values = mediaValues(entry); return mediaBlock('demo', values, values.caption || '', counter, assets) })
-          : [mediaBlock(fence[1], mediaValues(source), caption, counter, assets)]
+          ? source.split(/^\s*---\s*$/m).filter((entry) => entry.trim()).map((entry) => { const values = mediaValues(entry, assets); return mediaBlock('demo', values, values.caption || '', counter, assets) })
+          : [mediaBlock(fence[1] === 'html' ? 'demo' : fence[1], mediaValues(source, assets), caption, counter, assets)]
         if (fence[1] === 'tabs' && caption) entries.push(caption)
         out.push(entries.filter(Boolean).join('\n\n'))
         i = caption ? end + 1 : end
@@ -145,6 +150,7 @@ export function scopeToPlanMdx(scope) {
   const parts = [convertBody(title?.body_md ?? '', counter, assets)]
   for (const section of sections) parts.push(`## ${prose(section.heading)}\n\n${convertBody(section.body_md, counter, assets)}`)
   const mdx = `---\ntitle: ${JSON.stringify(scope.title || title?.heading || scope.slug)}\nbrief: ${JSON.stringify(lead.slice(0, 300))}\n---\n\n${parts.join('\n\n').trim()}\n`
+    .replace(/asset:(?=([^\s"')\\]*))/g, (match, ref) => ([...assets].some((id) => ref.startsWith(id)) ? match : 'asset\u200b:'))
   return { mdx, assets: [...assets] }
 }
 
