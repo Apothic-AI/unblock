@@ -69,9 +69,24 @@ test('scope plan publishes to :8950/plans/, scope url prints that link, and late
     assert.match(log.at(-1), /--into plan-abc/, 'a later write rewrites the same plan in place')
     assert.doesNotMatch(log.at(-1), /--questions/, 'an already pinned question is not asked twice')
 
+    const plans = join(process.env.UNBLOCK_STATE_DIR, 'scope-plans.json')
+    assert.equal(JSON.parse(readFileSync(plans, 'utf8')).demo.generated, true, 'a plan unblock created is marked')
+    const posts = join(temp, 'posts.log')
+    const lanePost = join(temp, 'lane-post')
+    writeFileSync(lanePost, `#!/bin/sh\nprintf '%s\\n' "$*" >> '${posts}'\n`)
+    chmodSync(lanePost, 0o700)
+    writeFileSync(plans, JSON.stringify({ demo: { plan: 'plan-hand', url: 'https://studio.example.ts.net:8950/plans/plan-hand', revision: 1, asked: [] } }))
+    const before = readFileSync(calls, 'utf8')
+    writeFileSync(join(temp, 'plan.md'), 'We keep one box per person, shared by every agent.')
+    got = await cli(['scope', 'patch', 'demo', 'plan', '--from', join(temp, 'plan.md')], { UNBLOCK_PLAN_SYNC: 'on', UNBLOCK_LANE_POST: lanePost })
+    assert.equal(got.status, 0, got.stderr)
+    assert.equal(readFileSync(calls, 'utf8'), before, 'a hand-built plan is never rewritten')
+    assert.match(readFileSync(posts, 'utf8'), /post --to w5H:pT1 .*--kind info Scope demo changed .*plan-hand was built by hand/)
+    assert.match(got.stderr, /is hand-built; told w5H:pT1/)
+
     const nav = await fetch(`http://127.0.0.1:${h.port}/s/demo`, { redirect: 'manual', headers: { ...human, 'Sec-Fetch-Dest': 'document' } })
     assert.equal(nav.status, 302)
-    assert.equal(nav.headers.get('location'), PLAN, 'an old /s/ link opens the Plan doc')
+    assert.equal(nav.headers.get('location'), 'https://studio.example.ts.net:8950/plans/plan-hand', 'an old /s/ link opens the Plan doc')
   } finally {
     await h.close()
   }

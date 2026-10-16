@@ -557,6 +557,13 @@ async function scopeLinks(health, slug) {
 
 async function publishPlan(slug) {
   const { scope } = await request(`/api/scope/${encodeURIComponent(slug)}`)
+  const existing = planFor(slug)
+  if (existing && !existing.generated) {
+    const text = `Scope ${slug} changed (revision ${scope.revision}). Your Plan doc ${existing.url} was built by hand, so unblock left it alone; carry the change over yourself.`
+    const post = spawnSync(process.env.UNBLOCK_LANE_POST || join(homedir(), '.agent-rails/factory-runtime/bin/lane-post'), ['post', '--to', scope.pane, '--from', process.env.HERDR_PANE_ID || scope.pane, '--kind', 'info', text], { encoding: 'utf8', timeout: 30000 })
+    recordPlan(slug, { ...existing, revision: scope.revision })
+    return { plan: existing.plan, url: existing.url, revision: scope.revision, questions: 0, skipped: 'hand-built', notified: post.status === 0 ? scope.pane : null }
+  }
   const { mdx, assets } = scopeToPlanMdx(scope)
   const dir = mkdtempSync(join(tmpdir(), 'unblock-plan-'))
   try {
@@ -594,7 +601,7 @@ async function publishPlan(slug) {
     let made
     try { made = JSON.parse(run.stdout.trim().split('\n').at(-1)) } catch { throw new Error('plan-publish printed no JSON') }
     if (!PLAN_URL.test(made.url ?? '')) throw new Error(`plan-publish printed ${made.url}, not a :8950/plans/ link`)
-    recordPlan(slug, { plan: made.plan, url: made.url, revision: scope.revision, asked: [...asked, ...questions.map((q) => q.quote)] })
+    recordPlan(slug, { plan: made.plan, url: made.url, generated: true, revision: scope.revision, asked: [...asked, ...questions.map((q) => q.quote)] })
     return { plan: made.plan, url: made.url, revision: scope.revision, questions: questions.length }
   } finally {
     rmSync(dir, { recursive: true, force: true })
@@ -605,7 +612,7 @@ async function syncPlan(slug) {
   if (process.env.UNBLOCK_PLAN_SYNC === 'off') return
   try {
     const made = await publishPlan(slug)
-    console.error(`plan ${made.url}`)
+    console.error(made.skipped ? `plan ${made.url} is hand-built; ${made.notified ? `told ${made.notified}` : 'owner not told'}` : `plan ${made.url}`)
   } catch (error) {
     console.error(`plan not updated: ${error.message}; run: unblock scope plan ${slug}`)
   }
