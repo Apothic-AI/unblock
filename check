@@ -28,7 +28,7 @@ run_step() {
   return "$result"
 }
 
-if [ "$mode" != staged ]; then
+if [ "$mode" = full ]; then
   run_step 'npm test' npm test
 fi
 if [ -f .filecap.json ] || [ -f .filecap-baseline.json ]; then
