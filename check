@@ -1,0 +1,40 @@
+#!/bin/sh
+set -eu
+
+mode=default
+if [ "$#" -gt 1 ]; then
+  printf '%s\n' "usage: ./check [--staged|--full]" >&2
+  exit 2
+fi
+if [ "$#" -eq 1 ]; then
+  case "$1" in
+    --staged) mode=staged ;;
+    --full) mode=full ;;
+    *) printf '%s\n' "usage: ./check [--staged|--full]" >&2; exit 2 ;;
+  esac
+fi
+
+run_step() {
+  name=$1
+  shift
+  start=$(date +%s)
+  if "$@"; then
+    result=0
+  else
+    result=$?
+  fi
+  end=$(date +%s)
+  printf '%s: %s seconds\n' "$name" "$((end - start))"
+  return "$result"
+}
+
+if [ "$mode" != staged ]; then
+  run_step 'npm test' npm test
+fi
+if [ -f .filecap.json ] || [ -f .filecap-baseline.json ]; then
+  if [ "$mode" = staged ]; then
+    run_step 'filecap check --staged' filecap check --staged
+  else
+    run_step 'filecap check' filecap check
+  fi
+fi
