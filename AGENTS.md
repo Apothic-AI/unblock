@@ -26,3 +26,5 @@ Scope workflow: `docs/scope-blocks.md`.
 
 ## Repo facts
 Node.js 22 or newer; run tests with `npm test`.
+
+No unit tests (Alex, 2026-10-19). Prove behavior through the running app, HTTP, a CLI subprocess, MCP transport or a real install. Keep kept-floor guards (outbound approval, spend caps, destructive-data approval, secret redaction, Alex’s credentials) and never thin them. Delete unit tests you touch.
