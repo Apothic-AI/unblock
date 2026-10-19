@@ -1,0 +1,15 @@
+#!/usr/bin/env python3
+import argparse
+import json
+
+parser = argparse.ArgumentParser()
+parser.add_argument('--json', action='store_true')
+parser.add_argument('--release')
+parser.add_argument('--journey')
+parser.add_argument('--cleanup', action='store_true')
+args = parser.parse_args()
+if args.cleanup:
+    print(json.dumps({'status': 'clean', 'created': False}))
+    raise SystemExit(0)
+print(json.dumps({'status': 'unavailable', 'service': 'hermes', 'identity_ref': None, 'env': {}, 'cleanup_cmd': None, 'backend': 'seed', 'reason': 'No disposable Hermes session bound to a seeded Unblock daemon and notification sink is available.'}))
+raise SystemExit(3)
