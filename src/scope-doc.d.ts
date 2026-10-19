@@ -127,7 +127,7 @@ export interface ScopeApproval {
   client_id?: string
 }
 
-export type DocKind = 'scope' | 'explainer' | 'review' | 'draft' | 'writing' | 'report' | 'visual'
+export type DocKind = 'scope' | 'bakeoff' | 'explainer' | 'review' | 'draft' | 'writing' | 'report' | 'visual'
 export type DocWhere = 'published' | 'sent' | 'posted' | 'submitted'
 
 export interface DocVersion {
@@ -142,7 +142,7 @@ export interface DocVersion {
   client_id?: string
 }
 
-export const DOC_KINDS: ['scope', 'explainer', 'review', 'draft', 'report', 'visual', 'writing']
+export const DOC_KINDS: ['scope', 'bakeoff', 'explainer', 'review', 'draft', 'report', 'visual', 'writing']
 export const DOC_WHERES: ['published', 'sent', 'posted', 'submitted']
 
 export interface ScopeV2 {

@@ -1177,7 +1177,7 @@ export function createScopeRoutes({ store, webRoot, sendJson, sendText, readJson
       return { app: scope.app }
     }
     if (answererWrite) {
-      if (kindOf(scope) === 'scope') bad('only an explainer takes an answerer model')
+      if (['scope', 'bakeoff'].includes(kindOf(scope))) bad('only an explainer takes an answerer model')
       if (body.model === null) delete scope.answerer_model
       else scope.answerer_model = body.model
       const problems = validateScope(scope)

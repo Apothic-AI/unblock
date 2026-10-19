@@ -1,7 +1,7 @@
 /**
  * One registry of doc kinds. Pure, no I/O. Shared by the daemon, the CLI and the page.
  */
-export type KindId = 'scope' | 'explainer' | 'review' | 'draft' | 'report' | 'visual'
+export type KindId = 'scope' | 'bakeoff' | 'explainer' | 'review' | 'draft' | 'report' | 'visual'
 
 export interface DocKind {
   /** Index group heading. */

@@ -17,7 +17,7 @@ const ROLE = 'You answer Alex\'s margin questions about an explainer doc. Answer
 // A scope doc's responder answers one margin comment in its own run, so a busy lane never holds it.
 // It may rewrite the one section the comment sits on; restructures and open calls stay with the lane.
 const SCOPE_ROLE = 'You answer one of Alex\'s margin comments on a scoping doc, on behalf of the lane that owns the doc. The lane is busy; you run in parallel with it and with other responders, so answer this comment only. Reply in plain short prose: one to four sentences, no headings. Lead with the direct answer. Read the scope folder (ALEX-WORDS.md, ALEX-FEED.md, RESUME.md, facts/) when the doc alone does not settle it. Treat a comment as a reply or a question, never a decision. If the comment asks for a change to the section it sits on and you are sure what he wants, make it: after your reply, write a line `EDIT <section-id>`, then the whole new section starting with its `## Heading {#id}` line, then a line `END_EDIT`. Change only what the comment asks; keep the rest of the section word for word. Plain words, short sentences, no em dashes, no semicolons. If the comment needs a restructure, a new mock, research longer than a few reads, or a call only the lane can make, say in one sentence what the lane will do and end with one line `NEEDS_OWNER: <why>`.'
-const isScope = (scope) => kindOf(scope) === 'scope'
+const isScope = (scope) => ['scope', 'bakeoff'].includes(kindOf(scope))
 
 const compact = (text) => String(text ?? '').replace(/\s+/g, ' ').trim()
 const positiveInt = (value, fallback) => { const n = Number(value); return Number.isInteger(n) && n > 0 ? n : fallback }

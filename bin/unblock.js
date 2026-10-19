@@ -631,7 +631,7 @@ const SCOPE_USAGE = `unblock scope slides <slug> --from <dir|slides.json> [--kee
 unblock scope [list|url|notes|comments]           scoping docs and anchored comments
 unblock scope plan <slug>                         publish the doc for Alex as an Agent Native Plan doc (:8950/plans/<id>); doc, patch and ask keep it current
 unblock scope latency <slug> [--since <ISO|30m|2h|1d>] [--json]
-unblock scope new <slug> --pane <pane> [--app recruiter|closer|rails-admin] [--title "text"] [--kind scope|explainer|review|draft|writing|report|visual] [--parent <slug>] [--theme <name>] [--sources <dir>...] [--answerer on|off]
+unblock scope new <slug> --pane <pane> [--app recruiter|closer|rails-admin] [--title "text"] [--kind scope|bakeoff|explainer|review|draft|writing|report|visual] [--parent <slug>] [--theme <name>] [--sources <dir>...] [--answerer on|off] [--dry-run]
 unblock scope ask <slug> --section <id> --quote "text" [--rec "text"] [--why "text"] [--option "text" ...] [--piece <id> ...] <question...>
 unblock scope ask <slug> --from <questions.json> [--keep "term" ...]
 unblock scope reply <slug> [T#] [--rec "text"] [--why "text"] [--option "text" ...] <text...>
@@ -666,11 +666,13 @@ async function scopeNew(args, usage, mode = 'scope') {
   const slugRe = /^[a-z0-9][a-z0-9-]{0,63}$/
   const paneRe = /^[A-Za-z0-9_-]+:[A-Za-z0-9_-]+$/
   let pane, app, title, kind = mode === 'explain' ? 'explainer' : undefined, answerer, parent, answererModel, theme
+  let dryRun = false
   const sources = []
   const words = []
   for (let i = 1; i < args.length; i++) {
     const word = args[i]
     if (word === '--json') { json = true; continue }
+    if (word === '--dry-run') { dryRun = true; continue }
     if (word === '--sources') {
       while (args[i + 1] && !args[i + 1].startsWith('--')) sources.push(args[++i])
       if (!sources.length) fail(usage)
@@ -691,12 +693,12 @@ async function scopeNew(args, usage, mode = 'scope') {
     else words.push(word)
   }
   const slug = words[0]
-  if (words.length !== 1 || !slugRe.test(slug ?? '') || !paneRe.test(pane ?? '') || (app !== undefined && !APPS.includes(app))) fail(usage)
+  if (words.length !== 1 || !slugRe.test(slug ?? '') || (!(dryRun && pane === undefined) && !paneRe.test(pane ?? '')) || (app !== undefined && !APPS.includes(app))) fail(usage)
   if (kind !== undefined && !DOC_KINDS.includes(kind)) fail(usage)
   if (parent !== undefined && !slugRe.test(parent)) fail(usage)
   if (theme !== undefined && !DOC_THEME.test(theme)) fail(usage)
   if (answerer !== undefined && answerer !== 'on' && answerer !== 'off') fail(usage)
-  if (answererModel !== undefined && (!MODEL_ALIAS.test(answererModel) || (kind ?? 'scope') === 'scope')) fail(usage)
+  if (answererModel !== undefined && (!MODEL_ALIAS.test(answererModel) || ['scope', 'bakeoff'].includes(kind ?? 'scope'))) fail(usage)
   const resolved = sources.map((dir) => {
     const abs = resolve(dir)
     let stat
@@ -711,9 +713,10 @@ async function scopeNew(args, usage, mode = 'scope') {
   const path = join(dir, 'scope.json')
   if (existsSync(path)) fail(`${path} exists`, 4)
   const heading = title ?? slug
-  const scope = { version: 2, slug, title: heading, pane, ...(app ? { app } : {}), ...(kind ? { kind } : {}), ...(parent ? { parent } : {}), ...(theme ? { theme } : {}), ...(answerer ? { answerer } : {}), ...(answererModel ? { answerer_model: answererModel } : {}), ...(resolved.length ? { sources: resolved } : {}), revision: 1, updated_at: new Date().toISOString(), doc: { sections: [{ id: 'title', heading, body_md: '' }] }, threads: [] }
+  const scope = { version: 2, slug, title: heading, pane: pane ?? 'dry-run:preview', ...(app ? { app } : {}), ...(kind ? { kind } : {}), ...(parent ? { parent } : {}), ...(theme ? { theme } : {}), ...(answerer ? { answerer } : {}), ...(answererModel ? { answerer_model: answererModel } : {}), ...(resolved.length ? { sources: resolved } : {}), revision: 1, updated_at: new Date().toISOString(), doc: { sections: [{ id: 'title', heading, body_md: '' }] }, threads: [] }
   const problems = validateScope(scope)
   if (problems.length) fail(problems.join('\n'), 1)
+  if (dryRun) return output({ slug, path, dry_run: true, scope }, `validated ${slug} (${kind ?? 'scope'}); dry run, no files written`)
   mkdirSync(dir, { recursive: true })
   writeFileSync(join(dir, 'scope.json.tmp'), JSON.stringify(scope, null, 2))
   renameSync(join(dir, 'scope.json.tmp'), path)
