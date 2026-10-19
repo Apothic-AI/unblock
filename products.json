@@ -1,0 +1,81 @@
+{
+  "project": "unblock",
+  "products": [
+    {
+      "id": "human-asks",
+      "title": "Human ask queue",
+      "paths": [
+        "bin/unblock.js",
+        "src/daemon.js",
+        "src/config.js",
+        "src/store.js",
+        "src/schema.js",
+        "src/focus-gate.js",
+        "src/lane-state.js",
+        "src/live-items.js",
+        "src/pane-notice.js",
+        "src/secrets.js",
+        "src/origin-process.js",
+        "src/rails-*.js",
+        "src/queue-model.*",
+        "src/voice*",
+        "src/mcp.js",
+        "src/demo-host.*",
+        "headless/**"
+      ],
+      "features": "features/human-asks",
+      "owner": "unblock-lead",
+      "release": "npm",
+      "inventory": "python3 features/inventory.py human-asks"
+    },
+    {
+      "id": "scope-docs",
+      "title": "Scope documents and decisions",
+      "paths": [
+        "src/scope*",
+        "src/doc-kinds.*",
+        "src/explainer-answerer.js",
+        "web/src/scope/**",
+        "web/scope.html"
+      ],
+      "features": "features/scope-docs",
+      "owner": "unblock-lead",
+      "release": "npm",
+      "inventory": "python3 features/inventory.py scope-docs"
+    },
+    {
+      "id": "web-panel",
+      "title": "Web panels",
+      "paths": [
+        "web/src/**",
+        "web/*.html",
+        "web/package.json",
+        "web/vite.config.*"
+      ],
+      "features": "features/web-panel",
+      "owner": "unblock-lead",
+      "release": "npm",
+      "inventory": "python3 features/inventory.py web-panel"
+    },
+    {
+      "id": "integrations",
+      "title": "Agent integrations",
+      "paths": [
+        "plugin/**",
+        "hooks/**",
+        "skills/**",
+        "herdr-plugin.toml",
+        "plugin.yaml",
+        "bin/*.sh",
+        "bin/unblock-rails-sync.js",
+        "hermes.py",
+        "__init__.py",
+        "scripts/**"
+      ],
+      "features": "features/integrations",
+      "owner": "unblock-lead",
+      "release": "npm",
+      "inventory": "python3 features/inventory.py integrations"
+    }
+  ]
+}
