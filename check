@@ -1,6 +1,13 @@
 #!/bin/sh
 set -eu
 
+css_guard="${KIT_ROOT:-$HOME/.agent-rails/kit-runtime/current}/bin/css-changed"
+if [ "${1-}" = "--staged" ]; then
+    "$css_guard" --staged
+else
+    "$css_guard"
+fi
+
 mode=default
 if [ "$#" -gt 1 ]; then
   printf '%s\n' "usage: ./check [--staged|--full]" >&2
