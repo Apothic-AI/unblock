@@ -20,8 +20,6 @@ import { answerHtml } from './answer.ts'
 import { chatMessageHtml, handlingChipHtml, alexWordsHtml, avatarHtml, author } from './people.ts'
 import { commentState } from './comment-state'
 import { approvalBannerHtml } from './approval-banner.js'
-import { prepareAudio } from '../lib/voice-audio'
-import type { ScopeVoiceUi, ScopeFeedLine } from '../../../src/scope-voice.js'
 
 const $ = <T extends HTMLElement = HTMLElement>(selector: string, root: ParentNode = document) => root.querySelector<T>(selector)!
 const boot = (window as any).__SCOPE_BOOT__ || {}
@@ -57,7 +55,6 @@ function chromeSpec() {
   if (boot.comment !== 'host') actions.push({ id: 'comment', label: flags.margin, kind: 'screen-only', placement: 'title', run: () => { openGeneralComment(); return { ok: true, speech: flags.margin === 'Ask' ? 'Ask about the whole doc.' : 'Comment on the whole doc.' } } })
   if (flags.resolve && ordered().some(thread => thread.status !== 'open')) actions.push({ id: 'resolved-comments', label: `${ordered().filter(thread => thread.status !== 'open').length} resolved${showResolved ? ' · hide' : ''}`, kind: 'screen-only', placement: 'menu', run: () => { showResolved = !showResolved; storage.set('scope:showResolved', String(showResolved)); if (!showResolved && scope?.threads.find(thread => thread.id === focused)?.status !== 'open') focused = null; renderCards(); syncChrome(); return { ok: true, speech: showResolved ? 'Resolved comments are shown.' : 'Resolved comments are hidden.' } } })
   if (flags.approve && (boot.approve !== 'host' || !hostDrawsApprove()) && !isApproved() && !(queuedApproval && !queuedApproval.failed)) actions.push({ id: 'approve-scope', label: 'Approve scope', kind: 'move', placement: 'title', run: () => { openApproveDialog(); return { ok: true, speech: 'Approve scope is open.' } } })
-  if (boot.voice !== false || typeof boot.voiceUrl === 'string' && /^https?:\/\//i.test(boot.voiceUrl)) actions.push({ id: 'voice', label: embed ? 'Talk' : 'Talk it through by voice', kind: 'screen-only', placement: embed ? 'title' : 'menu', run: () => { if (boot.voice !== false) $('#talk').click(); else window.open(boot.voiceUrl, '_blank', 'noopener'); return { ok: true, speech: 'Voice is open.' } } })
   return { title: [...((oneScreen(scope) ? (scope!.doc.sections.find(s => s.id === 'title')?.heading || scope!.title).replace(/\s+\{#[^}]+\}\s*$/, '') : scope!.title) || scope!.doc.sections.find(s => s.id === 'title')?.heading || slug)].slice(0, 80).join(''), description: flags.margin === 'Ask' ? `Explainer · revision ${scope!.revision}` : `${projectLabel()} · revision ${scope!.revision}`, back: boot.back && typeof boot.back.label === 'string' && typeof boot.back.route === 'string' ? boot.back : { label: projectLabel(), route: '/s/' }, actions, primary: actions.some(a => a.id === 'approve-scope') ? 'approve-scope' : undefined, chat: { onToggle: () => { if (composing?.general) { composing = null; closeSheet(); renderCards() } else openGeneralComment() } }, initialize: false as const, forwardKeys: true }
 }
 function syncChrome() {
@@ -365,11 +362,11 @@ async function write(route: string, body: Record<string, unknown>, id?: string) 
   }
   return result
 }
-async function postThread(body: { anchor: Anchor; text: string; via?: 'voice'; images?: string[]; client_id?: string }) { return write('', body) }
-async function postReply(id: string, body: { text: string; via?: 'voice'; images?: string[] }) { return write(`/${id}/reply`, body, id) }
-async function postResolve(id: string, body: { decision: string; alex_words?: string; how?: 'take' | 'own' | 'resolve'; via?: 'voice'; images?: string[] }) { return write(`/${id}/resolve`, body, id) }
-async function postReject(id: string, body: { text: string; via?: 'voice'; images?: string[] }) { return write(`/${id}/reject`, body, id) }
-async function postPark(id: string, body: { via?: 'voice' } = {}) { return write(`/${id}/park`, body, id) }
+async function postThread(body: { anchor: Anchor; text: string; images?: string[]; client_id?: string }) { return write('', body) }
+async function postReply(id: string, body: { text: string; images?: string[] }) { return write(`/${id}/reply`, body, id) }
+async function postResolve(id: string, body: { decision: string; alex_words?: string; how?: 'take' | 'own' | 'resolve'; images?: string[] }) { return write(`/${id}/resolve`, body, id) }
+async function postReject(id: string, body: { text: string; images?: string[] }) { return write(`/${id}/reject`, body, id) }
+async function postPark(id: string, body: Record<string, never> = {}) { return write(`/${id}/park`, body, id) }
 function hasClientId(clientId: string) { return scope?.threads.some(t => t.messages.some(m => (m as any).client_id === clientId) || (t.resolution as any)?.client_id === clientId || (t as any).parked_client_id === clientId) || false }
 function sendingLine(item: Sending) { if (item.failed) return `<div class="not-sent" data-client="${esc(item.clientId)}" role="alert"><strong>Not sent.</strong> ${item.failed.status === 404 ? 'That comment is gone.' : item.failed.status === 409 ? 'The page changed first.' : "Admin couldn't deliver it."}${item.text ? ` &quot;${esc(item.text)}&quot;` : ''}<div><button class="btn small" data-action="retry-send">Try again</button><button class="btn small" data-action="dismiss-send">Dismiss</button></div></div>`; return `<div class="waiting sending" data-client="${esc(item.clientId)}" role="status">${Date.now() - item.at >= 120_000 ? 'Still sending. Admin will keep trying.' : 'Sending…'}${item.text ? ` &quot;${esc(item.text)}&quot;` : ''}</div>` }
 setInterval(() => {
@@ -715,7 +712,7 @@ function render() {
   document.title = scope.title; syncChrome(); renderOverview(scope, layout); renderContents(scope, doc, oneScreen(scope)); highlight(); openFoldsWithQuestions(doc, slug)
   if (oneScreen(scope)) { const description = document.querySelector('.pc-description'); const recommendation = doc.querySelector('#one-screen .body p'); if (description) { description.replaceChildren(...(recommendation ? [...recommendation.cloneNode(true).childNodes] : []), Object.assign(document.createElement('small'), { className: 'overview-revision', textContent: ` · revision ${scope.revision}` })) } }
   if (pin && pin.id && missing.has(pin.id) && pinnedLayoutTop != null && !composing) detachedPin = { id: pin.id, top: pinnedLayoutTop }
-  syncFigureFocus(); renderCards(); renderFeed()
+  syncFigureFocus(); renderCards()
   const restoreReference = () => {
     if (pin && focused === pin.id && !phone() && !composing) {
       const node = focusedCard()
@@ -1597,7 +1594,7 @@ document.addEventListener('click', e => {
   if (!zoom.hidden) return
   const pinNode = target.closest<HTMLElement>('.pin[data-pin]')
   if (pinNode) { const id = pinNode.dataset.pin!; const pinned = scope?.threads.find(t => t.id === id); peeking = pinned && pinned.status !== 'open' && !showResolved ? id : null; if (id === focused && !composing) closePop(); else { if (composing) { clearRegionDraft(); composing = null }; focus(id); seekMoment(id) }; return }
-  if (floating() && (focused || composing) && target.isConnected && !target.closest('.cards > .card, mark[data-t], .pin-nav, .menu, .add, [data-action], [data-go], dialog, .pc-bar, .pc-head, #voiceRoot, .talk') && !getSelection()?.toString()) closePop()
+  if (floating() && (focused || composing) && target.isConnected && !target.closest('.cards > .card, mark[data-t], .pin-nav, .menu, .add, [data-action], [data-go], dialog, .pc-bar, .pc-head') && !getSelection()?.toString()) closePop()
   const figureButton = target.closest<HTMLButtonElement>('button.fig-comment')
   if (figureButton) {
     const figure = figureButton.closest('figure')
@@ -1630,39 +1627,6 @@ docWidth.offer(doc, doc.getBoundingClientRect().width)
 new ResizeObserver(() => docWidth.offer(doc, doc.getBoundingClientRect().width)).observe(doc)
 let scrollTimer = 0
 addEventListener('scroll', () => { selectionScrolling = true; showSelection(); clearTimeout(scrollTimer); scrollTimer = window.setTimeout(() => { selectionScrolling = false; if (!zoom.hidden) return; showSelection(); if (phone() && document.body.classList.contains('sheet-open') || floating()) return; const cardRect = !phone() && focusedCard()?.getBoundingClientRect(); if (focused && (threadOnScreen(focused) || cardRect && cardRect.bottom > 0 && cardRect.top < innerHeight)) return; const next = open().find(t => threadOnScreen(t.id)); if (next) focus(next.id, false, false) }, 150) })
-function context() { const sections = [...doc.querySelectorAll<HTMLElement>('section[data-section]')]; const section = sections.filter(n => n.getBoundingClientRect().top <= innerHeight * .3).at(-1) || sections[0]; return { thread: focused, section: section?.id || null, selection } }
-function voiceUi(ui: ScopeVoiceUi) { if (ui.do === 'focus_thread') focus(ui.thread, true); if (ui.do === 'focus_section') document.getElementById(ui.section)?.scrollIntoView({ block: 'start', behavior: 'smooth' }); if (ui.do === 'show_resolved') { showResolved = ui.on; storage.set('scope:showResolved', String(showResolved)); renderCards() }; if (ui.do === 'scroll') scrollBy({ top: innerHeight * .8 * (ui.direction === 'up' ? -1 : 1), behavior: 'smooth' }) }
-const feedRows: (ScopeFeedLine & { at: Date })[] = []
-let feedExpanded = false, feedClosed = false
-const feed = document.createElement('div')
-feed.className = 'voice-feed'; feed.setAttribute('aria-live', 'polite'); feed.setAttribute('aria-label', 'Voice activity'); feed.hidden = true
-if (boot.voice !== false) document.body.append(feed)
-function positionFeed() {
-  const capsule = document.querySelector<HTMLElement>('.voice-capsule')
-  const bottom = capsule ? innerHeight - capsule.getBoundingClientRect().top + 8 : phone() ? 84 : 24
-  feed.style.bottom = `${bottom}px`
-}
-const capsuleObserver = new ResizeObserver(positionFeed)
-new MutationObserver(() => { const capsule = document.querySelector('.voice-capsule'); capsuleObserver.disconnect(); if (capsule) capsuleObserver.observe(capsule); positionFeed() }).observe($('#voiceRoot'), { childList: true, subtree: true })
-addEventListener('resize', () => { renderFeed(); positionFeed() })
-function renderFeed() {
-  feed.hidden = feedClosed || !feedRows.length
-  if (feed.hidden) return
-  const limit = phone() ? 2 : 6
-  const visible = feedExpanded ? feedRows : feedRows.slice(-limit)
-  feed.innerHTML = `<div class="voice-feed-controls"><span class="voice-feed-heading">Voice activity</span>${feedRows.length > limit ? `<button class="voice-feed-toggle">${feedExpanded ? 'Show less' : `Show all (${feedRows.length})`}</button>` : ''}<button class="voice-feed-close" aria-label="Close voice activity">×</button></div><div class="voice-feed-list${feedExpanded ? ' expanded' : ''}">${visible.map(row => `<button class="voice-feed-row" data-ok="${row.ok}"${row.write ? ' data-write' : ''}${row.thread ? ` data-thread="${esc(row.thread)}"` : ''} title="${esc(row.at.toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit', second: '2-digit' }) + ' ET')}"><span class="voice-feed-dot" aria-hidden="true"></span><span class="voice-feed-label">${esc(row.label)}</span>${row.write && row.thread ? `<span class="voice-feed-delivery">${esc(((s) => s === 'Sent' || s === 'Answered' || s.startsWith('Read by ') ? 'Sent to the lane' : s)(delivery(row.thread)))}</span>` : ''}</button>`).join('')}</div>`
-  feed.querySelector<HTMLButtonElement>('.voice-feed-toggle')?.addEventListener('click', () => { feedExpanded = !feedExpanded; renderFeed() })
-  feed.querySelector<HTMLButtonElement>('.voice-feed-close')!.onclick = () => { feedClosed = true; renderFeed() }
-  feed.querySelectorAll<HTMLButtonElement>('.voice-feed-row[data-thread]').forEach(row => row.onclick = () => {
-    const id = row.dataset.thread!, thread = scope?.threads.find(t => t.id === id)
-    if (thread && thread.status !== 'open' && !showResolved) return
-    focus(id, true)
-  })
-  positionFeed()
-}
-function onFeed(line: ScopeFeedLine) { feedRows.push({ ...line, at: new Date() }); if (feedRows.length > 50) feedRows.shift(); renderFeed() }
-$('#talk').hidden = boot.voice === false
-$('#talk').onclick = async () => { if (boot.voice === false) return; try { const audio = prepareAudio(); const { mountVoice } = await import('./voice-mount'); mountVoice(audio, { getScope: async () => ({ slug, scope: scope! }), getContext: context, postThread, postReply, postResolve, postReject, postPark, fetchContext: q => api(`${endpoint}/context?q=${encodeURIComponent(q)}`), postLaneNote: body => api(`${endpoint}/lane-note`, { ...body, client_id: clientId() }), postApprove: async body => { const result = await api<{ queued?: boolean; client_id?: string }>(`${endpoint}/approve`, body); if (result.queued === true) trackQueuedApproval(result.client_id || body.client_id, body.mode, body.comment ?? ''); try { accept(await api(endpoint)) } catch {}; return result }, onFeed }, voiceUi, active => { if (active) { feedRows.length = 0; feedExpanded = false; feedClosed = false; renderFeed() }; $('#talk').classList.toggle('active', active) }) } catch (error) { $('#talk').title = error instanceof Error ? error.message : 'Voice unavailable' } }
 let lastPayload = ''
 function accept(payload: { scope: ScopeV2; notes?: any[]; items?: LiveItem[]; estimates?: unknown[]; failed?: Refused[]; error?: string }): boolean { const changed = (payload.items || []).map(mergeItem).some(Boolean); if (changed) patchLive(); if (payload.estimates && setBuildEstimates(payload.estimates)) lastPayload = ''; if (!payload.scope) { lastPayload = ''; doc.textContent = payload.error || 'The lane has not published a doc yet.'; return false }; const fingerprint = payloadKey(payload); if (fingerprint === lastPayload) return false; lastPayload = fingerprint
   const firstPayload = !scope

@@ -292,7 +292,7 @@ new option uses `scope reply <slug> T# --rec "option" [--why "reason"] "reply"`.
 ```bash
 unblock scope ask demo --section plan --quote "phones first" --rec "Phones first" --option "Phones first" --option "Desktop first" "Which screen ships first?"
 unblock scope react demo T4             # acknowledge; --clear removes it
-unblock scope reply demo T4 "Moved voice to round two."
+unblock scope reply demo T4 "Moved that to round two."
 unblock scope doc demo --from plan.md
 unblock scope patch demo plan --from section.md
 unblock scope edit demo T4 --section plan --quote "We build for phones first" --option "Phones first" --option "Desktop first"
@@ -331,8 +331,7 @@ Their actions reach the lane's pane; Not now parks a comment. Tags such as
 `@pHS` or `@another-scope` also route the comment to that lane. After a decision, the lane rewrites the doc
 and confirms it with `scope resolve`. A reply without T# is a general comment.
 `scope list`, `scope url <slug>` and `scope notes <slug> [--since N]` remain;
-all scoping commands support `--json`. Voice uses the same comment paths and the
-queue's voice keys, spend ledger and $20 monthly cap.
+All scoping commands support `--json`.
 
 ### Unslop gate
 

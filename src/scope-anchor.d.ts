@@ -1,7 +1,6 @@
 /**
  * Anchors for comments on a scoping page. Fixed interface shared by the page
- * (web/src/scope/*), the daemon (src/scope.js) and the voice rules
- * (src/scope-voice.js). Pure, no DOM.
+ * (web/src/scope/*), the daemon (src/scope.js). Pure, no DOM.
  */
 
 /**

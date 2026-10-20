@@ -158,17 +158,7 @@ export function applyConfig({ env = process.env, path = configPath() } = {}) {
     // Today's-focus gate on filing (src/focus-gate.js): the held-asks command, e.g. agent-rails scripts/held_asks.py.
     ['UNBLOCK_HELD_ASKS', typeof file.held_asks === 'string' && file.held_asks.trim() ? file.held_asks.trim() : null],
     ['UNBLOCK_REFUSE_WORKTREE_ORIGINS', normalizeBoolean(file.refuseWorktreeOrigins)],
-    ['UNBLOCK_VOICE_KEY_REF', typeof file.voice_key_ref === 'string' && file.voice_key_ref.trim() ? file.voice_key_ref.trim() : null],
-    ['UNBLOCK_VOICE_MODEL', typeof file.voice_model === 'string' && file.voice_model.trim() ? file.voice_model.trim() : null],
-    ['UNBLOCK_VOICE_NAME', typeof file.voice_name === 'string' && file.voice_name.trim() ? file.voice_name.trim() : null],
-    ['UNBLOCK_VOICE_PROVIDER', ['openai', 'live', 'xai', 'gemini'].includes(file.voice_provider) ? file.voice_provider : null],
     ['UNBLOCK_ADMIN_RELAY_KEY_REF', typeof file.admin_relay_key_ref === 'string' && file.admin_relay_key_ref.trim() ? file.admin_relay_key_ref.trim() : null],
-    ['UNBLOCK_XAI_KEY_REF', typeof file.xai_key_ref === 'string' && file.xai_key_ref.trim() ? file.xai_key_ref.trim() : null],
-    ['UNBLOCK_XAI_MODEL', typeof file.xai_model === 'string' && file.xai_model.trim() ? file.xai_model.trim() : null],
-    ['UNBLOCK_XAI_VOICE', typeof file.xai_voice === 'string' && file.xai_voice.trim() ? file.xai_voice.trim() : null],
-    ['UNBLOCK_VOICE_CAP_USD', typeof file.voice_spend_cap_usd === 'number' && Number.isFinite(file.voice_spend_cap_usd) && file.voice_spend_cap_usd > 0 ? String(file.voice_spend_cap_usd) : null],
-    ['UNBLOCK_VOICE_MAX_MINUTES', normalizePositiveInteger(file.voice_max_minutes)],
-    ['UNBLOCK_ISSUE_REPO', typeof file.voice_issue_repo === 'string' && file.voice_issue_repo.trim() ? file.voice_issue_repo.trim() : null],
     ['UNBLOCK_EXPLAINER_CONCURRENCY', normalizePositiveInteger(file.explainer?.concurrency)],
     ['UNBLOCK_EXPLAINER_TIMEOUT_MS', normalizePositiveInteger(file.explainer?.timeoutMs)],
   ]

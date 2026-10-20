@@ -265,7 +265,7 @@ export function createScopeRoutes({ store, webRoot, sendJson, sendText, readJson
         }
         const imagePaths = note => (note.images ?? []).map(path => ` [image: ${path}]`).join('') + (note.anchor?.crop ? ` [crop: ${join(root, slug, 'assets', note.anchor.crop)}]` : '')
         const parts = comments.map((note) => {
-          const alex = note.via === 'voice' ? 'Alex (by voice)' : note.via === 'admin' ? 'Alex (in Admin)' : 'Alex'
+          const alex = note.via === 'admin' ? 'Alex (in Admin)' : 'Alex'
           const heading = headingFor(note.anchor?.section ?? 'title')
           const quote = quoteSnippet(note.anchor?.quote ?? '')
           const text = compact(note.text)
@@ -362,7 +362,7 @@ export function createScopeRoutes({ store, webRoot, sendJson, sendText, readJson
           emitNotes(store.markScopeNotes(ids, status, status === 'delivered' ? new Date().toISOString() : null, status === 'delivered' ? extra ?? {} : {}))
         }, { ownerWords: true, ...(quiet ? { kind: 'info', wake: 'never' } : {}), ref: `scope:${slug}:notes:${comments.map(note => note.id).join(',')}`, topic: `scope-${slug}-n${comments[0].id}` })
         for (const note of laneNotes) {
-          let line = `[scoping ${slug}] Note from Alex's voice call (not a comment): ${compact(note.text)}`
+          let line = `[scoping ${slug}] Note from Alex (not a comment): ${compact(note.text)}`
           if (line.length > 700) line = `${cutUnits(line, 699)}…`
           await send(`lane:${note.id}`, pane, line, (status, extra) => {
             if (status !== 'held' || note.delivery !== 'held') emitNotes(store.markScopeNotes([note.id], status, status === 'delivered' ? new Date().toISOString() : null, status === 'delivered' ? extra ?? {} : {}))
@@ -371,7 +371,7 @@ export function createScopeRoutes({ store, webRoot, sendJson, sendText, readJson
         // Approval prompts remain separate, even when other feedback is waiting on the pane.
         if (!held && !retry) for (const note of approvalNotes) {
           const approval = scope.approval
-          const alex = `Alex${note.via === 'admin' ? ' in Admin' : note.via === 'voice' ? ' by voice' : ''}`
+          const alex = `Alex${note.via === 'admin' ? ' in Admin' : ''}`
           const text = compact(note.text)
           const atEt = approval.mode === note.event && approval.comment === note.text ? approval.at_et : eastern(note.at)
           const revision = approval.revision
@@ -408,7 +408,7 @@ export function createScopeRoutes({ store, webRoot, sendJson, sendText, readJson
           const lines = [], valid = []
           for (const target of batch) {
             try {
-              const alex = target.via === 'voice' ? 'Alex (by voice)' : target.via === 'admin' ? 'Alex (in Admin)' : 'Alex'
+              const alex = target.via === 'admin' ? 'Alex (in Admin)' : 'Alex'
               const heading = headingFor(target.anchor.section)
               lines.push(`[scoping ${slug}] ${alex} tagged you on ${target.thread} (§${heading} "${quoteSnippet(target.anchor.quote)}"): ${compact(target.words ?? target.text)}${/[.!?]$/.test(compact(target.words ?? target.text)) ? '' : '.'} Read it: unblock scope comments ${slug}`)
               valid.push(target)
@@ -567,19 +567,6 @@ export function createScopeRoutes({ store, webRoot, sendJson, sendText, readJson
         stamped++
       }
       return sendJson(res, 200, { stamped })
-    }
-    if (req.method === 'POST' && parts.length === 2 && action === 'lane-note') {
-      const relay = relayIdentity(req)
-      if (!relay) requireHumanPath(req)
-      const body = await readJson(req)
-      if (!body || typeof body.text !== 'string' || !body.text.trim() || body.text.length > 1000 || (body.via !== undefined && body.via !== 'voice')) return sendJson(res, 400, { error: 'invalid lane note' })
-      if ((relay || body.client_id !== undefined) && (typeof body.client_id !== 'string' || !CLIENT_ID.test(body.client_id))) return sendJson(res, 400, { error: 'invalid client_id' })
-      const duplicate = body.client_id && store.scopeNoteByClientId(slug, body.client_id)
-      if (duplicate) return sendJson(res, 200, { note: duplicate, duplicate: true })
-      const note = store.addScopeNote({ slug, author: 'alex', kind: 'thought', event: 'lane_note', text: body.text, who: (relay || proxyIdentity(req)).login, via: 'voice', client_id: body.client_id })
-      emitNote(note)
-      schedule(slug)
-      return sendJson(res, 200, { note })
     }
     if (req.method === 'GET' && parts.length === 1) return sendJson(res, 200, { ...state, app: appOf(state.scope), notes: scopeNotes(slug), items: liveItems.list(slug), ...buildActuals(slug, state.scope) })
     if (req.method === 'GET' && parts.length === 3 && action === 'published' && /^[1-9]\d*$/.test(threadId)) {
@@ -779,7 +766,7 @@ export function createScopeRoutes({ store, webRoot, sendJson, sendText, readJson
       || typeof body.head !== 'string' || !/^[0-9a-f]{40}$/.test(body.head))) return sendJson(res, 400, { error: 'invalid ship' })
     if (sectionWrite && (Object.keys(body).some((key) => !['body_md', 'heading', 'audience', 'keep', 'if_section_hash'].includes(key))
       || typeof body.body_md !== 'string' || (body.heading !== undefined && typeof body.heading !== 'string') || (body.audience !== undefined && !AUDIENCES.includes(body.audience)))) return sendJson(res, 400, { error: 'invalid section patch' })
-    if (body.via !== undefined && !(relay ? ['admin', 'voice'] : ['voice']).includes(body.via)) return sendJson(res, 400, { error: 'invalid via' })
+    if (body.via !== undefined && !(relay ? ['admin'] : []).includes(body.via)) return sendJson(res, 400, { error: 'invalid via' })
     if ((relay || body.client_id !== undefined) && (typeof body.client_id !== 'string' || !CLIENT_ID.test(body.client_id))) return sendJson(res, 400, { error: 'invalid client_id' })
     if (body.keep !== undefined && (!Array.isArray(body.keep) || body.keep.length > 50 || !body.keep.every((term) => typeof term === 'string' && term.length <= 60))) return sendJson(res, 400, { error: 'invalid keep' })
     if (relay && body.via === undefined) body.via = 'admin'

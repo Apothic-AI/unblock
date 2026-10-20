@@ -17,8 +17,6 @@ import { applyConfig, configDir, daemonRoot, scopeLinkTemplate } from './config.
 import { createLivedocApprovals } from './scope-approvals.js'
 import { APPROVAL_PURPOSES, normalizeOrigin, optionalScrub, validateAsk, validateUpdate, ValidationError } from './schema.js'
 import { SecretStore } from './secrets.js'
-import { defaultReadKey, mintVoiceToken, mintXaiToken, mintOpenAiToken, buildLiveSession, connectLiveCall } from './voice-token.js'
-import { createSpendLedger, rateFor } from './voice-spend.js'
 import { CLOSED_TO_ANSWERS, finished, Store } from './store.js'
 
 const VERSION = '0.1.0'
@@ -377,7 +375,9 @@ export async function startDaemon({ port, secretStore: injectedSecretStore, issu
     sendJson(res, 403, { code: 'RAILS_SYNC_PROOF' })
     return true
   }
-  const relaySecret = process.env.UNBLOCK_ADMIN_RELAY_TOKEN || await defaultReadKey(process.env.UNBLOCK_ADMIN_RELAY_KEY_REF || 'unblock-admin-relay', 'UNBLOCK_ADMIN_RELAY_TOKEN')
+  const relaySecret = process.env.UNBLOCK_ADMIN_RELAY_TOKEN || await new Promise((resolve) => {
+    execFile(join(homedir(), '.local/bin/agent-secret'), ['get', process.env.UNBLOCK_ADMIN_RELAY_KEY_REF || 'unblock-admin-relay'], { timeout: 5000 }, (error, stdout) => resolve(error ? '' : stdout.trim()))
+  })
   function relayIdentity(req) {
     if (relaySecret.length < 32 || !sameSecret(req.headers['x-unblock-relay'], relaySecret)) return null
     if (Object.keys(req.headers).some((header) => header === 'x-forwarded-for' || header === 'x-forwarded-host' || header.startsWith('tailscale-user-'))) return null
@@ -395,9 +395,6 @@ export async function startDaemon({ port, secretStore: injectedSecretStore, issu
   // readiness poll gave up on a daemon that was in fact already serving.
   secretStore.backend().catch(() => {})
   const clients = new Set()
-  const voiceKeyCache = new Map()
-  const connectedLiveSessions = new Set()
-  const connectingLiveSessions = new Set()
   // Listeners on ONE ask, keyed by ticket. The queue stream above says how many
   // asks are open; this one says what is happening inside a single ask while
   // the human fills it in, which is what an agent watching its own ask needs.
@@ -1180,117 +1177,6 @@ async function answerAsk(ticket, values, reply, fieldContext, fieldBounce, revis
         hidden: store.countHidden(profile),
         profile,
       })
-    }
-    if (pathname.startsWith('/api/voice/')) {
-      requireHumanPath(req)
-      if (pathname === '/api/voice/issue' && req.method === 'POST') {
-        const issue = await readJson(req)
-        if (!issue || typeof issue.title !== 'string' || !issue.title.trim() || issue.title.trim().length > 120 ||
-            typeof issue.details !== 'string' || issue.details.length > 4000 ||
-            !['unblock', 'dashboard', 'other'].includes(issue.about) ||
-            (issue.ticket !== undefined && typeof issue.ticket !== 'string')) {
-          return sendJson(res, 400, { error: 'Invalid issue' })
-        }
-        if (process.env.UNBLOCK_ISSUE_DRY === '1') return sendJson(res, 200, { number: 0, url: '' })
-        const repo = process.env.UNBLOCK_ISSUE_REPO || 'shelf-group/agent-rails'
-        const title = `[${issue.about === 'dashboard' ? 'dashboard' : 'unblock'}] ${issue.title.trim()}`
-        const viewer = proxyIdentity(req)?.login || 'local'
-        const body = `Filed by voice from the unblock panel by ${viewer} at ${new Date().toISOString()}.\nAbout: ${issue.about}\nOn screen: ${issue.ticket || 'the list'}\n\n${issue.details}\n\nPick-up: triage like any dogfood issue; comment 'fixed in <version>' when live.\n`
-        const gh = process.env.UNBLOCK_GH || (existsSync(join(homedir(), '.local/bin/gh')) ? join(homedir(), '.local/bin/gh') : '/opt/homebrew/bin/gh')
-        const argv = ['issue', 'create', '-R', repo, '--title', title, '--body-file', '-', '--label', 'dogfood-unblock']
-        try {
-          let output
-          try { output = await issueRunner(gh, argv, body) } catch (error) {
-            if (error.killed || error.signal || !/label/i.test(String(error.stderr || ''))) throw error
-            output = await issueRunner(gh, argv.slice(0, -2), body)
-          }
-          const url = String(output).trim().split(/\r?\n/).at(-1)
-          const number = Number(url.match(/^https:\/\/[^\s/]+\/[^\s/]+\/[^\s/]+\/issues\/(\d+)$/)?.[1])
-          if (!Number.isSafeInteger(number) || number < 1) throw new Error('invalid issue URL')
-          return sendJson(res, 200, { number, url })
-        } catch { return sendJson(res, 502, { error: 'Could not file the issue' }) }
-      }
-      const settings = {
-        live: { id: 'live', label: 'GPT Live', model: process.env.UNBLOCK_LIVE_MODEL || 'gpt-live-1', keyRef: process.env.UNBLOCK_OPENAI_KEY_REF || 'openai-rails-voice-prod', envName: 'OPENAI_API_KEY', voice: process.env.UNBLOCK_LIVE_VOICE || 'marin', delegate: process.env.UNBLOCK_LIVE_DELEGATE_MODEL || 'gpt-6-luna' },
-        openai: { id: 'openai', label: 'GPT Realtime', model: process.env.UNBLOCK_OPENAI_MODEL || 'gpt-realtime-2.1', keyRef: process.env.UNBLOCK_OPENAI_KEY_REF || 'openai-rails-voice-prod', envName: 'OPENAI_API_KEY', voice: process.env.UNBLOCK_OPENAI_VOICE || 'marin' },
-        gemini: { id: 'gemini', label: 'Gemini', model: process.env.UNBLOCK_VOICE_MODEL || 'gemini-3.8-live', keyRef: process.env.UNBLOCK_VOICE_KEY_REF || 'gemini-api-key', envName: 'GEMINI_API_KEY', voice: process.env.UNBLOCK_VOICE_NAME || 'Kore' },
-        xai: { id: 'xai', label: 'Grok', model: process.env.UNBLOCK_XAI_MODEL || 'grok-voice-think-fast-2.0', keyRef: process.env.UNBLOCK_XAI_KEY_REF || 'xai-api-key', envName: 'XAI_API_KEY', voice: process.env.UNBLOCK_XAI_VOICE || 'eve' },
-      }
-      const positive = (value, fallback) => Number.isFinite(Number(value)) && Number(value) > 0 ? Number(value) : fallback
-      const minutes = Number(process.env.UNBLOCK_VOICE_MAX_MINUTES)
-      const ledger = createSpendLedger({ file: join(stateDir(), 'voice-spend.json'), capUsd: positive(process.env.UNBLOCK_VOICE_CAP_USD, null), maxMinutes: Number.isSafeInteger(minutes) && minutes > 0 ? minutes : 15 })
-      const configured = async (id) => {
-        const setting = settings[id]
-        const cached = voiceKeyCache.get(id)
-        if (cached && cached.ref === setting.keyRef && cached.env === process.env[setting.envName] && Date.now() - cached.at < 60_000) return cached.configured
-        const result = Boolean(await defaultReadKey(setting.keyRef, setting.envName))
-        voiceKeyCache.set(id, { ref: setting.keyRef, env: process.env[setting.envName], at: Date.now(), configured: result })
-        return result
-      }
-      const providerOrder = ['openai', 'live', 'xai', 'gemini']
-      const preferred = providerOrder.includes(process.env.UNBLOCK_VOICE_PROVIDER) ? process.env.UNBLOCK_VOICE_PROVIDER : 'openai'
-      const availableProviders = async () => Promise.all(providerOrder.map(configured))
-      const defaultProvider = (available) => available[providerOrder.indexOf(preferred)] ? preferred : providerOrder.find((id, index) => available[index]) || preferred
-      if (pathname === '/api/voice/providers' && req.method === 'GET') {
-        const available = await availableProviders()
-        return sendJson(res, 200, { default: defaultProvider(available), providers: providerOrder.map((id, index) => ({ id, label: settings[id].label, model: settings[id].model, configured: available[index], usd_per_minute: rateFor(settings[id].model) })), spend: ledger.status() })
-      }
-      if (pathname === '/api/voice/end' && req.method === 'POST') {
-        const body = await readJson(req)
-        const seconds = Number(body.seconds)
-        const ok = ledger.settle(body.session_id, Number.isFinite(seconds) ? Math.max(0, seconds) : 0)
-        if (ok) {
-          try {
-            const session = ledger.get(body.session_id)
-            const metrics = body.metrics || {}
-            const number = (value) => typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : null
-            const line = { at: new Date().toISOString(), session_id: session.session_id, provider: session.provider, model: session.model, seconds: number(body.seconds), usd: session.charged_usd, usd_per_minute: session.rate,
-              first_audio_ms: number(metrics.first_audio_ms), tool_calls: number(metrics.tool_calls), tool_ok: number(metrics.tool_ok), profile: typeof metrics.profile === 'string' ? metrics.profile.slice(0, 40) : null }
-            mkdirSync(stateDir(), { recursive: true, mode: 0o700 })
-            appendFileSync(join(stateDir(), 'voice-sessions.jsonl'), JSON.stringify(line) + '\n', { mode: 0o600 })
-          } catch { /* Metrics never prevent settlement. */ }
-        }
-        return sendJson(res, 200, { ok, spend: ledger.status() })
-      }
-      if (pathname === '/api/voice/live/connect' && req.method === 'POST') {
-        const body = await readJson(req)
-        const reserved = typeof body.session_id === 'string' ? ledger.get(body.session_id) : null
-        if (!reserved || reserved.settled || reserved.provider !== 'live' || typeof body.sdp !== 'string' || !body.sdp.trim() || body.sdp.length > 200_000 || typeof body.prompt !== 'string' || body.prompt.length > 20_000 || !Array.isArray(body.tools) || body.tools.length > 64) return sendJson(res, 400, { error: 'Invalid live call' })
-        if (connectedLiveSessions.has(body.session_id) || connectingLiveSessions.has(body.session_id)) return sendJson(res, 409, { error: 'Voice session already connected' })
-        connectingLiveSessions.add(body.session_id)
-        try {
-          const { keyRef, voice, delegate } = settings.live
-          const session = buildLiveSession({ model: reserved.model, voice, delegate, prompt: body.prompt, tools: body.tools })
-          const connected = await connectLiveCall({ keyRef, sdp: body.sdp, session })
-          connectedLiveSessions.add(body.session_id)
-          return sendJson(res, 200, { sdp: connected.sdp })
-        } catch (error) {
-          if (error.code === 'VOICE_NOT_CONFIGURED') return sendJson(res, 503, { error: 'Voice is not configured', code: 'VOICE_NOT_CONFIGURED' })
-          return sendJson(res, 502, { error: 'Voice token service unavailable' })
-        } finally { connectingLiveSessions.delete(body.session_id) }
-      }
-      if (pathname === '/api/voice/session' && req.method === 'POST') {
-        const body = await readJson(req)
-        const available = await availableProviders()
-        const provider = providerOrder.includes(body.provider) && available[providerOrder.indexOf(body.provider)] ? body.provider : defaultProvider(available)
-        if (!available.some(Boolean)) return sendJson(res, 503, { error: 'Voice is not configured', code: 'VOICE_NOT_CONFIGURED' })
-        let reservation
-        try {
-          reservation = ledger.reserve({ provider, model: settings[provider].model })
-        } catch (error) {
-          if (error.code === 'VOICE_SPEND_CAP') return sendJson(res, 402, { error: 'Voice hit this month’s cap', code: 'VOICE_SPEND_CAP', spend: ledger.status() })
-          throw error
-        }
-        try {
-          const { keyRef, model, voice } = settings[provider]
-          const scopeVoice = body.profile === 'scope' && provider === 'gemini' ? await import('./scope-voice.js') : null
-          const token = provider === 'live' ? { provider, token: '', model, voice, expires_at: new Date(Date.now() + 120_000).toISOString() } : provider === 'gemini' ? await mintVoiceToken({ keyRef, model, voice, speed: body.speed, ...(scopeVoice ? { prompt: scopeVoice.SCOPE_VOICE_PROMPT, tools: scopeVoice.SCOPE_VOICE_TOOLS } : {}) }) : provider === 'openai' ? await mintOpenAiToken({ keyRef, model, voice }) : await mintXaiToken({ keyRef, model, voice })
-          return sendJson(res, 200, { ...token, ...reservation, spend: ledger.status() })
-        } catch {
-          ledger.settle(reservation.session_id, 0)
-          return sendJson(res, 502, { error: 'Voice token service unavailable' })
-        }
-      }
     }
     if (pathname === '/api/answer' && req.method === 'POST') {
       const body = await readJson(req)

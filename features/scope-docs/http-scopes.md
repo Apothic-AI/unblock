@@ -12,7 +12,7 @@ proofs:
 
 ## Sub-features
 
-Scope publishing, document assets, anchors, decisions, approvals, threads, build and voice support.
+Scope publishing, document assets, anchors, decisions, approvals, threads, and build support.
 
 ## How to get to it
 

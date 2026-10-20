@@ -1,7 +1,7 @@
 /**
  * Scoping doc, contract v2: one document plus comments anchored to it
  * (Google Docs model). Fixed interface, shared by the daemon (src/scope.js),
- * the CLI (bin/unblock.js), the voice rules (src/scope-voice.js) and the page
+ * the CLI (bin/unblock.js) and the page
  * (web/src/scope/*). Pure ESM, no Node or DOM APIs.
  *
  * scope.json v2 is written ONLY by the daemon (lanes use the CLI verbs).

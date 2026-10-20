@@ -18,7 +18,6 @@
         "src/origin-process.js",
         "src/rails-*.js",
         "src/queue-model.*",
-        "src/voice*",
         "src/mcp.js",
         "src/demo-host.*",
         "headless/**"

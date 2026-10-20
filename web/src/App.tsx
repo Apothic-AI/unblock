@@ -5,10 +5,6 @@ import { ago, askKind, groupOf, hideProducts, projectCounts, sortAsks, todayAsks
 import { Icon } from './icons'
 import { ChipText, PlainText } from './ChipText'
 import { SoloCard, type SendRecovery } from './SoloCard'
-import { TalkButton, VoiceBar } from './VoiceBar'
-import type { TranscriptLine, VoiceState } from './lib/voice-live'
-import { prepareAudio } from './lib/voice-audio'
-import type { VoiceProvider, VoiceProviders, VoiceSpend, VoiceUi } from '../../src/voice.js'
 
 function pinned() {
   const match = location.hash.match(/#ask=([^&]+)/)
@@ -144,138 +140,6 @@ export default function App() {
       else setError(cause instanceof Error ? cause.message : 'Unknown error')
     }
   }, [])
-  const [voiceState, setVoiceState] = useState<VoiceState | null>(null)
-  const [transcript, setTranscript] = useState<TranscriptLine[]>([])
-  const [providers, setProviders] = useState<VoiceProviders | null>(null)
-  const [provider, setProvider] = useState<VoiceProvider | undefined>()
-  const [spend, setSpend] = useState<VoiceSpend | undefined>()
-  const [minutesLeft, setMinutesLeft] = useState(false)
-  const [blockedLink, setBlockedLink] = useState<{ url: string; label: string } | null>(null)
-  const [voiceDetails, setVoiceDetails] = useState<{ ticket: string; open: boolean; nonce: number } | null>(null)
-  const [voiceFill, setVoiceFill] = useState<{ ticket: string; values: Record<string, unknown>; field_context: Record<string, string>; nonce: number } | null>(null)
-  const call = useRef<{ stop(): void } | null>(null)
-  const starting = useRef(0)
-  const selectedVoiceTicket = useRef(selectedTicket)
-  selectedVoiceTicket.current = selectedTicket
-  const [callTiming, setCallTiming] = useState<{ startedAt: number; maxMinutes: number } | null>(null)
-  const uiNonce = useRef(0)
-  const consumedFill = useRef(0)
-  const consumedDetails = useRef(0)
-  const consumeVoiceFill = useCallback((nonce: number) => {
-    if (nonce <= consumedFill.current) return false
-    consumedFill.current = nonce
-    setVoiceFill((current) => current?.nonce === nonce ? null : current)
-    return true
-  }, [])
-  const consumeVoiceDetails = useCallback((nonce: number) => {
-    if (nonce <= consumedDetails.current) return false
-    consumedDetails.current = nonce
-    setVoiceDetails((current) => current?.nonce === nonce ? null : current)
-    return true
-  }, [])
-  useEffect(() => {
-    setVoiceFill((current) => current?.ticket === selectedTicket ? current : null)
-    setVoiceDetails((current) => current?.ticket === selectedTicket ? current : null)
-  }, [selectedTicket])
-  useEffect(() => {
-    if (voiceState?.name === 'ended' || voiceState?.name === 'error'
-      || voiceState?.name === 'capped' || voiceState?.name === 'unconfigured') {
-      setVoiceFill(null)
-      setVoiceDetails(null)
-    }
-  }, [voiceState?.name])
-  useEffect(() => {
-    if (!VIEWER || BASE) return
-    void api<VoiceProviders>('/api/voice/providers').then((result) => {
-      setProviders(result)
-      let stored: string | null = null
-      try { stored = localStorage.getItem('unblock.voiceProvider.v2') } catch { /* storage may be unavailable */ }
-      const picked = result.providers.find((item) => item.id === stored && item.configured)
-      setProvider(picked?.id || result.default)
-    }).catch(() => undefined)
-  }, [])
-  useEffect(() => {
-    if (!callTiming || voiceState?.name === 'ended') return
-    const tick = () => setMinutesLeft(Date.now() >= callTiming.startedAt + (callTiming.maxMinutes - 1) * 60_000)
-    tick()
-    const timer = window.setInterval(tick, 1000)
-    return () => window.clearInterval(timer)
-  }, [callTiming, voiceState?.name])
-  const startCall = (picked?: VoiceProvider) => {
-    const attempt = ++starting.current
-    call.current?.stop()
-    call.current = null
-    setTranscript([])
-    setBlockedLink(null)
-    setMinutesLeft(false)
-    setCallTiming(null)
-    setSpend(undefined)
-    setVoiceFill(null)
-    setVoiceDetails(null)
-    let audio: AudioContext
-    try { audio = prepareAudio() }
-    catch (cause) {
-      setVoiceState({ name: 'error', message: cause instanceof Error ? cause.message : 'Audio is unavailable.' })
-      return
-    }
-    setVoiceState({ name: 'connecting' })
-    void import('./lib/voice-live').then(({ startVoiceCall }) => {
-      if (attempt !== starting.current) { void audio.close(); return }
-      call.current = startVoiceCall(audio, {
-        onState: setVoiceState,
-        onTranscript: (line) => setTranscript((previous) => {
-          const last = previous.at(-1)
-          return last?.who === line.who ? [...previous.slice(0, -1), line] : [...previous, line]
-        }),
-        onUi: (ui: VoiceUi) => {
-          switch (ui.do) {
-            case 'show_ask':
-              choose(ui.ticket)
-              setShowAnswered(false)
-              void load()
-              break
-            case 'show_list':
-              goToList()
-              if (ui.all) updateHiddenProducts(new Set())
-              else if (ui.project) updateHiddenProducts(new Set(products.map(([name]) => name).filter((name) => name !== ui.project)))
-              break
-            case 'show_answered':
-              goToList()
-              setShowAnswered(true)
-              break
-            case 'open_link':
-              if (!window.open(ui.url, '_blank', 'noopener')) setBlockedLink({ url: ui.url, label: ui.label })
-              else setBlockedLink(null)
-              break
-            case 'details':
-              if (ui.ticket !== selectedVoiceTicket.current) {
-                choose(ui.ticket)
-                void load()
-              }
-              setVoiceDetails({ ticket: ui.ticket, open: ui.open, nonce: ++uiNonce.current })
-              break
-            case 'fill':
-              if (ui.ticket !== selectedVoiceTicket.current) {
-                choose(ui.ticket)
-                void load()
-              }
-              setVoiceFill({ ticket: ui.ticket, values: ui.values, field_context: ui.field_context, nonce: ++uiNonce.current })
-              break
-          }
-        },
-        onChanged: () => { void load() },
-        onSession: (session) => {
-          setProvider(session.provider)
-          setSpend(session.spend)
-          setCallTiming({ startedAt: Date.now(), maxMinutes: session.maxMinutes })
-        },
-      }, { provider: picked ?? provider })
-    }).catch((cause) => {
-      void audio.close()
-      if (attempt === starting.current) setVoiceState({ name: 'error', message: cause instanceof Error ? cause.message : 'Voice is unavailable.' })
-    })
-  }
-  useEffect(() => () => { starting.current++; call.current?.stop() }, [])
   useEffect(() => {
     void load()
     const timer = window.setInterval(() => {
@@ -399,7 +263,6 @@ export default function App() {
           <span className="wordmark">unblock</span>
           <span className="top-count">{asks.length} waiting{hiddenCount > 0 && ` · ${hiddenCount} hidden`}</span>
           {VIEWER && <span className="viewer" title={VIEWER.login}>{VIEWER.name || VIEWER.login}</span>}
-          {VIEWER && !BASE && !finished && <TalkButton active={voiceState?.name === 'connecting' || voiceState?.name === 'listening' || voiceState?.name === 'speaking'} onClick={() => startCall()} />}
         </div>
       </header>
       {!BASE && sendNotice && <div className={`outbox-notice${sendNotice.kind === 'partial' ? ' is-partial' : ''}`} role="status">
@@ -411,16 +274,6 @@ export default function App() {
           setSendNotice(null)
         }}>Open it</button>
       </div>}
-      {VIEWER && !BASE && <VoiceBar state={voiceState} transcript={transcript} provider={provider}
-        choices={providers?.providers.filter((item) => item.configured).map(({ id, label }) => ({ id, label })) || []}
-        spend={spend} minutesLeft={minutesLeft} blockedLink={blockedLink}
-        onSwitch={(next) => {
-          try { localStorage.setItem('unblock.voiceProvider.v2', next) } catch { /* storage may be unavailable */ }
-          setProvider(next)
-          startCall(next)
-        }}
-        onEnd={() => { starting.current++; call.current?.stop(); call.current = null; setVoiceFill(null); setVoiceDetails(null); setVoiceState({ name: 'ended' }) }}
-        onRetry={() => startCall()} />}
       {finished ? (
         <div className="empty"><h2>This link is done.</h2><p>The answer reached the agent.</p></div>
       ) : !data ? (
@@ -449,10 +302,6 @@ export default function App() {
               key={selected.ticket} ask={selected}
               onFinished={() => finish(selected.ticket)} onReload={load}
               queueSend={!BASE ? queueSend : undefined} recovery={recoveries[selected.ticket]}
-              voiceDetails={voiceDetails?.ticket === selected.ticket && voiceDetails.nonce > consumedDetails.current ? voiceDetails : undefined}
-              voiceFill={voiceFill?.ticket === selected.ticket && voiceFill.nonce > consumedFill.current ? voiceFill : undefined}
-              onVoiceDetailsApplied={consumeVoiceDetails} onVoiceFillApplied={consumeVoiceFill}
-              voiceCallActive={voiceState?.name === 'connecting' || voiceState?.name === 'listening' || voiceState?.name === 'speaking'}
             />
           </section>
         </main>
