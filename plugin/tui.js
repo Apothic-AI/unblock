@@ -102,14 +102,28 @@ function flat(segments, width) {
   // Clip with an ellipsis instead of cutting a word in half.
   return over ? out + faint + '…' + reset : out
 }
-/** Word-wrap plain text; each result is short enough for one row. */
+/** Word-wrap plain text; each result is short enough for one row.
+ * A word longer than the row (a long URL, a continuous identifier) is split
+ * across rows instead of being pushed out whole, so nothing is unreadable. */
 function wrap(text, width) {
-  const words = oneLine(text).split(' ').filter(Boolean)
+  const limit = Math.max(1, width)
   const lines = []
   let line = ''
-  for (const word of words) {
-    if (line && visible(line) + 1 + visible(word) > width) { lines.push(line); line = word }
-    else line = line ? `${line} ${word}` : word
+  const push = (piece) => {
+    // A piece that fits on its own joins the current row when there is room.
+    if (line && visible(line) + 1 + visible(piece) <= limit) { line = `${line} ${piece}`; return }
+    if (line) lines.push(line)
+    line = piece
+  }
+  for (const word of oneLine(text).split(' ').filter(Boolean)) {
+    let rest = word
+    while (visible(rest) > limit) {
+      if (line) { lines.push(line); line = '' }
+      const chars = [...rest]
+      lines.push(chars.slice(0, limit).join(''))
+      rest = chars.slice(limit).join('')
+    }
+    if (rest) push(rest)
   }
   if (line) lines.push(line)
   return lines.length ? lines : ['']
@@ -144,22 +158,68 @@ function askLines(ask, { focused, open, width }) {
   ]
   lines.push(head)
   const titleTone = focused ? bold + (color ? kind.color : '') : bold
-  lines.push([s('     '), s(oneLine(ask.title), titleTone)])
-  const why = oneLine(ask.summary || ask.why)
-  if (why) lines.push([s('     '), s(why, dim)])
+  // An open card is read, not clipped: every prose row wraps to the row width.
+  // A folded row stays one line — it is the index, and a 15-line preview would
+  // push everything else off the screen; Enter opens the card to read it.
+  const indent = '     '
+  const wrapped = (text, indentText, tone) => {
+    for (const row of wrap(text, Math.max(16, width - visible(indentText)))) {
+      lines.push([s(indentText), s(row, tone)])
+    }
+  }
+  const single = (text, indentText, tone) => {
+    lines.push([s(indentText), s(oneLine(text), tone)])
+  }
+  const prose = (text, tone) => (open ? wrapped(text, indent, tone) : single(text, indent, tone))
+  prose(ask.title, titleTone)
+  // The why is the ask's own statement of the problem; a folded row shows its
+  // one-line summary instead when the ask carries both.
+  const summary = oneLine(ask.summary)
+  const whyText = open ? oneLine(ask.why) || summary : summary || oneLine(ask.why)
+  if (whyText) prose(whyText, dim)
   if (!open) {
     const needs = (ask.fields || []).filter((f) => !(f.name in (ask.answers || {})))
-    if (needs.length) lines.push([s('     '), s(`needs: ${needs.map((f) => f.label || f.name).join(', ')}`, faint)])
+    if (needs.length) single(`needs: ${needs.map((f) => f.label || f.name).join(', ')}`, indent, faint)
     lines.push([s('')])
     return lines
   }
 
-  if (oneLine(ask.why) && ask.summary && oneLine(ask.why) !== why) {
-    for (const row of wrap(ask.why, Math.max(20, width - 7))) lines.push([s('     '), s(row, dim)])
+  // A step's bullet hangs its continuation rows under the text, not under the
+  // bullet, so a wrapped step still reads as one item.
+  const stepIndent = '       · '
+  const stepRest = '         '
+  for (const step of ask.steps || []) {
+    wrap(step, Math.max(16, width - visible(stepIndent))).forEach((row, n) => {
+      lines.push(n === 0
+        ? [s('       '), s('· ', faint), s(row, dim)]
+        : [s(stepRest), s(row, dim)])
+    })
   }
-  for (const step of ask.steps || []) lines.push([s('       '), s('· ', faint), s(oneLine(step), dim)])
   for (const link of ask.links || []) {
-    lines.push([s('       '), s('↗ ', kind.color), s(oneLine(link.label || link.url), dim), s(`  ${link.url}`, faint)])
+    // The label is prose and wraps. The URL is a single token: it goes on its
+    // own row, hard-split at the row width, so no part of it is ever lost.
+    const labelIndent = '       ↗ '
+    for (const row of wrap(link.label || link.url, Math.max(16, width - visible(labelIndent)))) {
+      lines.push([s('       '), s('↗ ', kind.color), s(row, dim)])
+    }
+    if (link.label && link.url) {
+      // Break after a / ? & = - so a split URL is still recognisable and can be
+      // pasted back together; fall back to a hard split when no break lands.
+      const urlWidth = Math.max(16, width - visible(stepRest))
+      const pieces = []
+      let rest = oneLine(link.url)
+      while (visible(rest) > urlWidth) {
+        const chars = [...rest]
+        let at = urlWidth
+        for (let i = urlWidth; i > urlWidth / 2; i -= 1) {
+          if ('/ ?&=_-'.includes(chars[i - 1])) { at = i; break }
+        }
+        pieces.push(chars.slice(0, at).join(''))
+        rest = chars.slice(at).join('')
+      }
+      if (rest) pieces.push(rest)
+      for (const row of pieces) lines.push([s(stepRest), s(row, faint)])
+    }
   }
   const fields = unansweredFields(ask)
   if (fields.length) lines.push([s('')])
@@ -175,19 +235,46 @@ function askLines(ask, { focused, open, width }) {
         const radio = field.multi ? (on ? '▣' : '□') : (on ? '●' : '○')
         return `${radio} ${n + 1}:${choice.label}`
       }).join('   ')
-      lines.push([pointer, s(label, isFocus ? bold : ''), s(`  ${picked}`, dim)])
-      if (isFocus) lines.push([s('         '), s('←/→ or number to choose · tab next field', faint)])
+      // A long question and its choices each wrap; the choices are wrapped as
+      // tokens so a row never splits a radio from its label.
+      const choiceIndent = '         '
+      const labelRows = wrap(label, Math.max(16, width - visible(choiceIndent) - 2))
+      lines.push([pointer, s(labelRows[0], isFocus ? bold : '')])
+      for (const row of labelRows.slice(1)) lines.push([s(choiceIndent), s(row, isFocus ? bold : '')])
+      const choiceWidth = Math.max(16, width - visible(choiceIndent))
+      let row = ''
+      for (const token of picked.split('   ')) {
+        const next = row ? `${row}   ${token}` : token
+        if (row && visible(next) > choiceWidth) { lines.push([s(choiceIndent), s(row, dim)]); row = token }
+        else row = next
+      }
+      if (row) lines.push([s(choiceIndent), s(row, dim)])
+      if (isFocus) for (const row of wrap('←/→ or number to choose · tab next field', Math.max(16, width - visible(choiceIndent)))) lines.push([s(choiceIndent), s(row, faint)])
     } else if (field.type === 'confirm') {
-      lines.push([pointer, s(label, isFocus ? bold : ''), s(`  ${state.value ? '▣ yes' : '□ no'}`, state.value ? ok : dim)])
-      if (isFocus) lines.push([s('         '), s('space to toggle · tab next field', faint)])
+      const choiceIndent = '         '
+      const labelRows = wrap(label, Math.max(16, width - visible(choiceIndent) - 8))
+      lines.push([pointer, s(labelRows[0], isFocus ? bold : ''), s(`  ${state.value ? '▣ yes' : '□ no'}`, state.value ? ok : dim)])
+      for (const row of labelRows.slice(1)) lines.push([s(choiceIndent), s(row, isFocus ? bold : '')])
+      if (isFocus) for (const row of wrap('space to toggle · tab next field', Math.max(16, width - visible(choiceIndent)))) lines.push([s(choiceIndent), s(row, faint)])
     } else {
       const shown = redactValue(field, state.value)
-      const valueSeg = shown
-        ? s(`  ${shown}`, isFocus ? inverse : '')
-        : s('  type here', faint)
-      lines.push([pointer, s(label, isFocus ? bold : ''), valueSeg])
+      const choiceIndent = '         '
+      const labelRows = wrap(label, Math.max(16, width - visible(choiceIndent) - 2))
+      if (shown) {
+        // What the human typed is theirs to read back: it wraps too.
+        lines.push([pointer, s(labelRows[0], isFocus ? bold : '')])
+        for (const row of labelRows.slice(1)) lines.push([s(choiceIndent), s(row, isFocus ? bold : '')])
+        for (const row of wrap(shown, Math.max(16, width - visible(choiceIndent)))) {
+          lines.push([s(choiceIndent), s(row, isFocus ? inverse : dim)])
+        }
+      } else {
+        lines.push([pointer, s(labelRows[0], isFocus ? bold : ''), s('  type here', faint)])
+        for (const row of labelRows.slice(1)) lines.push([s(choiceIndent), s(row, isFocus ? bold : '')])
+      }
       if (field.type === 'paste' && field.command) {
-        lines.push([s('         '), s('run: ', faint), s(field.command, dim)])
+        for (const row of wrap(`run: ${field.command}`, Math.max(16, width - visible(choiceIndent)))) {
+          lines.push([s(choiceIndent), s(row, dim)])
+        }
       }
     }
   })
@@ -206,13 +293,36 @@ function footerLines(width) {
   let tone = footerKind === 'error' ? bad : footerKind === 'ok' ? ok : accent
   if (!status && missing.length) { status = `still needed: ${missing.join(', ')}`; tone = bad }
   const rule = flat([s(' ' + '─'.repeat(Math.max(0, width - 1)), faint)], width)
-  const line = status ? flat([s(' '), s(status, tone)], width) : ''
+  // A long status (a URL to copy, an error someone wrote out) wraps instead of
+  // being cut: the footer is where the answer lives.
+  const line = status
+    ? wrap(status, Math.max(16, width - 1)).map((row) => flat([s(' '), s(row, tone)], width))
+    : []
   // A hidden passphrase prompt owns every key; the keymap would lie.
-  if (passphrasePrompt) return [rule, line]
+  if (passphrasePrompt) return [rule, ...line]
   const keys = expanded === ask?.ticket
-    ? [keyChip('tab', 'fields'), keyChip('␣/←/→', 'answer'), keyChip('^⏎', 'submit'), keyChip('esc', 'fold'), keyChip('q', 'quit')]
-    : [keyChip('j/k', 'move'), keyChip('⏎', 'open'), keyChip('r', 'refresh'), keyChip('p', 'scope'), keyChip('l', 'link'), keyChip('q', 'quit')]
-  return [rule, line, flat([s(' '), ...keys.flat()], width)]
+    ? [keyChip('tab', 'fields'), keyChip('␣/←/→', 'answer'), keyChip('^⏎', 'submit'), keyChip('↑↓', 'scroll'), keyChip('esc', 'fold'), keyChip('q', 'quit')]
+    : [keyChip('j/k', 'move'), keyChip('⏎', 'open'), keyChip('↑↓', 'scroll'), keyChip('r', 'refresh'), keyChip('p', 'scope'), keyChip('l', 'link'), keyChip('q', 'quit')]
+  return [rule, ...line, ...chipLines(keys, width)]
+}
+
+/** Key chips wrap onto more rows rather than running off the right edge. */
+function chipLines(keys, width) {
+  const rows = []
+  let current = [s(' ')]
+  let used = 1
+  for (const chip of keys) {
+    const room = chip.reduce((sum, seg) => sum + visible(seg.text), 0)
+    if (current.length > 1 && used + room > width) {
+      rows.push(flat(current, width))
+      current = [s(' ')]
+      used = 1
+    }
+    current.push(...chip)
+    used += room
+  }
+  rows.push(flat(current, width))
+  return rows
 }
 
 function plainListing(data) {
@@ -243,6 +353,8 @@ let draftTimer
 let isEditing = false
 let busy = false
 let scroll = 0
+/** Set by ↑/↓: hold the window where the human put it until they move on. */
+let manualScroll = null
 /** While set, keys type a hidden passphrase instead of moving the queue. */
 let passphrasePrompt = null
 
@@ -316,6 +428,15 @@ function unansweredFields(ask) {
   return (ask.fields || []).filter((field) => !(field.name in (ask.answers || {})))
 }
 
+/** True when the selected card needs more rows than the window can show. */
+function bodyOverflows(ask) {
+  const width = Math.max(24, stdout.columns || Number(process.env.COLUMNS) || 100)
+  const rows = Math.max(10, stdout.rows || Number(process.env.LINES) || 40)
+  const chrome = headerLines(width, asks(), profile).length + footerLines(width).length + 1
+  const card = askLines(ask, { focused: true, open: expanded === ask.ticket, width }).length
+  return card > Math.max(1, rows - chrome)
+}
+
 function render() {
   const width = Math.max(24, stdout.columns || Number(process.env.COLUMNS) || 100)
   const rows = Math.max(10, stdout.rows || Number(process.env.LINES) || 40)
@@ -340,14 +461,20 @@ function render() {
 
   // Keep the selection inside the window; fold an open card upward when it
   // overflows so its fields stay reachable instead of falling off the screen.
-  if (selectedStart < scroll) scroll = selectedStart
-  const endOfSelected = body.length && queue.length
-    ? Math.min(body.length, selectedStart + askLines(selectedAsk() || queue[0], {
-        focused: true, open: expanded === (selectedAsk() || queue[0])?.ticket, width,
-      }).length)
-    : 0
-  if (endOfSelected - scroll > budget) scroll = endOfSelected - budget
-  scroll = Math.max(0, Math.min(scroll, Math.max(0, body.length - budget)))
+  // A manual scroll wins until the human changes card: the point of ↑/↓ is to
+  // read a card that is taller than the window, not to have it snap back.
+  if (manualScroll === null) {
+    if (selectedStart < scroll) scroll = selectedStart
+    const endOfSelected = body.length && queue.length
+      ? Math.min(body.length, selectedStart + askLines(selectedAsk() || queue[0], {
+          focused: true, open: expanded === (selectedAsk() || queue[0])?.ticket, width,
+        }).length)
+      : 0
+    if (endOfSelected - scroll > budget) scroll = endOfSelected - budget
+  }
+  const maxScroll = Math.max(0, body.length - budget)
+  scroll = manualScroll === null ? scroll : manualScroll
+  scroll = Math.max(0, Math.min(scroll, maxScroll))
 
   const windowLines = body.slice(scroll, scroll + budget).map((segments) => flat(segments, width))
   while (windowLines.length < budget) windowLines.push('')
@@ -473,11 +600,29 @@ stdin.on('keypress', async (_text, key) => {
     }
   }
 
-  if (key.name === 'j' || key.name === 'down') selected = Math.min(queue.length - 1, selected + 1)
-  else if (key.name === 'k' || key.name === 'up') selected = Math.max(0, selected - 1)
+  if (key.name === 'j') { selected = Math.min(queue.length - 1, selected + 1); manualScroll = null }
+  else if (key.name === 'k') { selected = Math.max(0, selected - 1); manualScroll = null }
+  // Arrows scroll a card that is taller than the window; with nothing to
+  // scroll they move the selection, which is what they did before.
+  else if (key.name === 'down' || key.name === 'up') {
+    const overflow = expanded === ask?.ticket && bodyOverflows(ask)
+    if (!overflow) {
+      selected = key.name === 'down'
+        ? Math.min(queue.length - 1, selected + 1)
+        : Math.max(0, selected - 1)
+      manualScroll = null
+    } else {
+      manualScroll = Math.max(0, scroll + (key.name === 'down' ? 1 : -1))
+    }
+  } else if (key.name === 'pagedown' || key.name === 'pageup') {
+    const page = Math.max(1, (stdout.rows || 40) - 6)
+    manualScroll = Math.max(0, scroll + (key.name === 'pagedown' ? page : -page))
+  } else if (key.name === 'home') manualScroll = 0
+  else if (key.name === 'end') manualScroll = Number.MAX_SAFE_INTEGER
   else if (key.name === 'return' || key.name === 'enter') {
     expanded = expanded === ask?.ticket ? null : ask?.ticket
     fieldIndex = 0
+    manualScroll = null
   } else if (key.name === 's') return void submit()
   else if (key.name === 'r') return void refresh()
   else if (key.name === 'p') { profile = profile === '*' ? (activeScope || '*') : '*'; return void refresh() }

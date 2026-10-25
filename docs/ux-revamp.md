@@ -35,10 +35,16 @@ the web `--kind-text/--kind-bg` pairs say the same thing.
    - Rows: `▸` selection marker, gating `!`, dim meta, bold title, dim why,
      `needs:` list.
    - Expanded card: steps, links, per-field rendering with radio/checkbox
-     glyphs, focused field highlighted with an inline hint.
+     glyphs, focused field highlighted with an inline hint. Prose (title, why,
+     steps, link labels, the footer) word-wraps to the terminal width instead
+     of clipping: a card is read, not truncated. A link URL stays whole on its
+     own row and is split on a `/ ? & =` break only when it cannot fit.
    - Pinned footer: status line (accent / green / red by kind) plus key chips
      rendered inverse, so the keymap is legible without reading the README.
    - Scroll window: the selected ask is always in view; arrows show scrollback.
+     Once a card is taller than the window, `↑`/`↓` scroll the card itself
+     (page up/down by a screen, home/end to the ends) and hold that position
+     until the human changes card, so the fields stay reachable at any width.
    - Empty state: `✔ Queue is clear — nothing needs you.`
    - Approvals (consent/spend/message/permission) never draft or submit from
      the TUI — the daemon answers those writes with 403 HUMAN_ONLY, so the
