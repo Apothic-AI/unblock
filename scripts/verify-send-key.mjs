@@ -7,7 +7,7 @@
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { spawn } from 'node:child_process'
+import { createTuiDriver } from './lib/tui-harness.mjs'
 
 const ROOT = new URL('..', import.meta.url).pathname
 const state = mkdtempSync(join(tmpdir(), 'unblock-sendkey-'))
@@ -44,24 +44,25 @@ async function file(fields, extras = {}) {
 }
 const textField = [{ name: 'answer', type: 'text', label: 'Answer', required: true }]
 
-/** Drive the TUI under a pty, one key at a time, and return every frame. */
-function drive(keys) {
-  return new Promise((resolve) => {
-    const child = spawn('script', ['-qec', `node ${ROOT}plugin/tui.js`, '/dev/null'], {
-      env: { ...process.env, UNBLOCK_STATE_DIR: state, UNBLOCK_PORT: String(daemon.port), UNBLOCK_AUTH: auth, COLUMNS: '100', LINES: '40' },
-      stdio: ['pipe', 'pipe', 'pipe'],
-    })
-    let out = ''
-    child.stdout.setEncoding('utf8').on('data', (chunk) => { out += chunk })
-    let i = 0
-    const next = () => {
-      if (i >= keys.length) return
-      const [wait, text] = keys[i++]
-      setTimeout(() => { child.stdin.write(text); next() }, wait)
-    }
-    child.on('close', () => resolve(out))
-    next()
-  })
+const env = {
+  ...process.env, UNBLOCK_STATE_DIR: state, UNBLOCK_PORT: String(daemon.port),
+  UNBLOCK_AUTH: auth, COLUMNS: '100', LINES: '40',
+}
+
+/**
+ * Drive the TUI under a pty, one key at a time, and return the captured output.
+ * Each step waits for the effect it expects instead of sleeping, so keys are
+ * never delivered before the TUI is reading them.
+ */
+async function drive(keys) {
+  const tui = createTuiDriver({ tuiPath: `${ROOT}plugin/tui.js`, env })
+  if (!(await tui.waitForFrame(1))) throw new Error('the TUI painted no frame')
+  if (!(await tui.waitForQueue())) throw new Error('the TUI never listed an open ask')
+  for (const key of keys) {
+    if (!(await tui.press(key))) throw new Error(`key ${JSON.stringify(key)} produced no repaint`)
+  }
+  await tui.quit()
+  return tui.output
 }
 const frames = (raw) => raw.split('\x1b[H\x1b[2J').slice(1).map((f) => f.replace(/\x1b\[[0-9;]*[A-Za-z]/g, ''))
 const last = (raw) => frames(raw).at(-1) || ''
@@ -74,7 +75,7 @@ const check = (name, ok, detail = '') => findings.push({ name, ok, detail })
 
 // 1. A TEXT field: type "s" into it (must not send), tab to the send seat, s sends.
 const tText = await file(textField)
-const rawText = await drive([[800, '\r'], [500, 's'], [500, 'a'], [500, 's'], [600, '\t'], [600, 's'], [1200, 'q']])
+const rawText = await drive(['\r', 's', 'a', 's', '\t', 's'])
 const aText = await get(tText)
 check('typed "s" stays in the text field', (await get(tText)).status !== 'answered' || aText.answers?.answer === 'sas' || true, '')
 check('text answer persisted as "sas"', aText.answers?.answer === 'sas', JSON.stringify(aText.answers))
@@ -94,14 +95,14 @@ const tChoice = await file([{
   choices: [{ value: 'a', label: 'Option A' }, { value: 'b', label: 'Option B' }],
   recommend: { value: 'a', why: 'One option; nothing to weigh.' },
 }], { purpose: 'decision' })
-const rawChoice = await drive([[800, '\r'], [500, '1'], [700, 's'], [1200, 'q']])
+const rawChoice = await drive(['\r', '1', 's'])
 const aChoice = await get(tChoice)
 check('s sends from a choice field', aChoice.status === 'answered', aChoice.status)
 check('choice value recorded', aChoice.answers?.pick === 'a', JSON.stringify(aChoice.answers))
 
 // 3. Enter must only open/fold — never send.
 const tEnter = await file(textField)
-const rawEnter = await drive([[800, '\r'], [500, 'x'], [600, '\r'], [800, 'q']])
+const rawEnter = await drive(['\r', 'x', '\r'])
 const aEnter = await get(tEnter)
 check('Enter never submits', aEnter.status === 'open', aEnter.status)
 check('Enter folded the card back', frames(rawEnter).some((f) => !flat(f).includes('s send answer')), '')
