@@ -56,13 +56,20 @@ const env = {
  */
 async function drive(keys) {
   const tui = createTuiDriver({ tuiPath: `${ROOT}plugin/tui.js`, env })
-  if (!(await tui.waitForFrame(1))) throw new Error('the TUI painted no frame')
-  if (!(await tui.waitForQueue())) throw new Error('the TUI never listed an open ask')
-  for (const key of keys) {
-    if (!(await tui.press(key))) throw new Error(`key ${JSON.stringify(key)} produced no repaint`)
+  try {
+    if (!(await tui.waitForFrame(1))) throw new Error('the TUI painted no frame')
+    if (!(await tui.waitForQueue())) throw new Error('the TUI never listed an open ask')
+    for (const key of keys) {
+      if (!(await tui.press(key))) throw new Error(`key ${JSON.stringify(key)} produced no repaint`)
+    }
+    await tui.quit()
+    return tui.output
+  } finally {
+    // A failing check leaves this function by throwing. Without this the pty
+    // child would outlive the run and keep holding the temp state dir, so the
+    // assertion's own message would be the last thing you could trust.
+    await tui.kill()
   }
-  await tui.quit()
-  return tui.output
 }
 const frames = (raw) => raw.split('\x1b[H\x1b[2J').slice(1).map((f) => f.replace(/\x1b\[[0-9;]*[A-Za-z]/g, ''))
 const last = (raw) => frames(raw).at(-1) || ''

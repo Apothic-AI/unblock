@@ -53,13 +53,20 @@ const env = { ...process.env, UNBLOCK_STATE_DIR: stateDir, UNBLOCK_PORT: String(
  */
 async function drive(keys) {
   const tui = createTuiDriver({ tuiPath: new URL('../plugin/tui.js', import.meta.url).pathname, env })
-  if (!(await tui.waitForFrame(1))) throw new Error('the TUI painted no frame')
-  if (!(await tui.waitForQueue())) throw new Error('the TUI never listed an open ask')
-  for (const key of keys) {
-    if (!(await tui.press(key))) throw new Error(`key ${JSON.stringify(key)} produced no repaint`)
+  try {
+    if (!(await tui.waitForFrame(1))) throw new Error('the TUI painted no frame')
+    if (!(await tui.waitForQueue())) throw new Error('the TUI never listed an open ask')
+    for (const key of keys) {
+      if (!(await tui.press(key))) throw new Error(`key ${JSON.stringify(key)} produced no repaint`)
+    }
+    await tui.quit()
+    return tui.output
+  } finally {
+    // A failing check leaves this function by throwing. Without this the pty
+    // child would outlive the run and keep holding the temp state dir, so the
+    // assertion's own message would be the last thing you could trust.
+    await tui.kill()
   }
-  await tui.quit()
-  return tui.output
 }
 
 const strip = (text) => text.replace(/\x1b\[[0-9;]*[A-Za-z]/g, '').replace(/\r/g, '')

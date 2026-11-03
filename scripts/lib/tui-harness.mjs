@@ -42,13 +42,19 @@ export function createTuiDriver({ tuiPath, env, stepTimeoutMs = 10000, quitGrace
 
   const wake = () => { for (const waiter of [...waiters]) waiter() }
 
+  // A test that fails must not keep the process alive on a live pty handle, and
+  // must not leave the TUI running after node exits. Removed again on close, so
+  // driving the TUI several times in one script does not pile up listeners.
+  const exitGuard = () => { try { child.kill('SIGKILL') } catch { /* already gone */ } }
+  process.on('exit', exitGuard)
+
   child.stdout.setEncoding('utf8')
   child.stdout.on('data', (chunk) => { out += chunk; wake() })
   // stderr is folded in so a crash shows up in the captured text instead of
   // leaving an assertion to fail with no explanation.
   child.stderr.setEncoding('utf8')
   child.stderr.on('data', (chunk) => { out += chunk; wake() })
-  child.on('close', () => { exited = true; wake() })
+  child.on('close', () => { exited = true; process.off('exit', exitGuard); wake() })
 
   /** Resolve true as soon as `predicate` holds, false if the timeout wins. */
   function waitUntil(predicate, timeoutMs) {
@@ -118,7 +124,7 @@ export function createTuiDriver({ tuiPath, env, stepTimeoutMs = 10000, quitGrace
       return waitUntil(() => frameCount() > before, stepTimeoutMs)
     },
 
-    /** Ask the TUI to quit, then fall back to SIGTERM so a run cannot hang. */
+    /** Ask the TUI to quit, then tear it down so a run cannot hang. */
     async quit(key = 'q') {
       try {
         child.stdin.write(key)
@@ -126,14 +132,22 @@ export function createTuiDriver({ tuiPath, env, stepTimeoutMs = 10000, quitGrace
         /* already gone */
       }
       if (await waitUntil(() => exited, quitGraceMs)) return true
-      child.kill()
-      return waitUntil(() => exited, quitGraceMs)
+      return this.kill()
     },
 
-    /** Terminate unconditionally, for failure paths. */
+    /**
+     * Terminate unconditionally, for failure paths.
+     *
+     * SIGTERM alone is not always enough: the direct child is `script` and the
+     * TUI is its grandchild behind a pty, so a SIGTERM that `script` does not
+     * forward leaves a live `node tui.js` holding the state dir. Escalate to
+     * SIGKILL rather than report a cleanup that did not happen.
+     */
     async kill() {
       if (exited) return true
-      child.kill()
+      child.kill('SIGTERM')
+      if (await waitUntil(() => exited, quitGraceMs)) return true
+      try { child.kill('SIGKILL') } catch { /* already gone */ }
       return waitUntil(() => exited, quitGraceMs)
     },
   }
