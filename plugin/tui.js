@@ -82,6 +82,10 @@ function meta(ask) {
   const parts = [origin.workspace_name || 'workspace']
   if (origin.pane_id) parts.push(`pane ${origin.pane_id}`)
   parts.push(age(ask.created_at))
+  // Parked on the weekly decide-or-drop list. The row is still dealt here (an
+  // ask nobody can answer must not disappear), but it is not today's work and
+  // the line should not read as if it were.
+  if (ask.weekly_at) parts.push('weekly')
   return parts.join(' · ')
 }
 
@@ -137,9 +141,11 @@ function wrap(text, width) {
 
 function headerLines(width, queue, scope) {
   const gating = queue.filter((ask) => ask.gating).length
+  const weekly = queue.filter((ask) => ask.weekly_at != null).length
   const right = [
     queue.length ? `${queue.length} waiting` : 'clear',
     gating ? `${gating} gating` : '',
+    weekly ? `${weekly} weekly` : '',
     `profile ${scope}`,
   ].filter(Boolean).join(' · ')
   const left = [s(' ▌', accent), s(' unblock', bold)]
